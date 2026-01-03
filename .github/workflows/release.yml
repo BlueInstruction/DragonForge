@@ -3,16 +3,12 @@ name: Build Mesa Turnip Driver
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4 的 SHA
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -49,11 +45,9 @@ jobs:
           cd out
           zip -9 turnip-adrenotools.zip vulkan.ad07xx.so meta.json
 
-      - name: Create Release
-        uses: softprops/action-gh-release@c9b46fe7aac4b77dca0f3a3fa0fdd4c6c2c4a6c4  # v2 的 SHA
+      - name: Release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: turnip-${{ github.run_number }}
           name: Mesa Turnip Driver
           files: out/turnip-adrenotools.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
