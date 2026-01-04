@@ -1,26 +1,36 @@
-From 2f1c9c8d6c0a9a7a4f6b5c3d2e1a000000000000 Mon Sep 17 00:00:00 2001
-From: Sea Nasr <dev@adreno.local>
-Date: Sun, 4 Jan 2026 12:00:00 +0000
-Subject: [PATCH] mesa: increase default shader cache size for high-end devices
+From 8c2a4e9c0b3d1a4c2f6e8b7a9d12f3456789abcd Mon Sep 17 00:00:00 2001
+From: MesaTurnipDriver <dev@mesa.local>
+Date: Sun, 4 Jan 2026 18:00:00 +0000
+Subject: [PATCH] util/disk_cache: increase default shader cache size on Android
 
-Increase default Mesa shader cache size to 2GB.
-This is required for modern DX12 titles on Adreno 7xx
-to avoid shader eviction and recompilation stutter.
+On high-RAM Android devices (12GB+), the default shader cache size
+is too small for modern DX12 titles running through VKD3D-Proton.
+
+Increase the Android default to 2GB while still respecting
+MESA_SHADER_CACHE_MAX_SIZE if explicitly set.
 
 ---
- src/util/disk_cache.c | 4 ++--
- 1 file changed, 2 insertions(+), 2 deletions(-)
+ src/util/disk_cache.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/src/util/disk_cache.c b/src/util/disk_cache.c
-index 6c4c0c2a1ab..a9b77b0b21f 100644
+index 1f2a3b4c5d6..7a8b9c0d1e2 100644
 --- a/src/util/disk_cache.c
 +++ b/src/util/disk_cache.c
-@@ -72,8 +72,8 @@
- #define MAX_GPU_CACHE_SIZE (1024ull * 1024ull * 1024ull)
- #endif
+@@ -84,7 +84,13 @@ static uint64_t
+ disk_cache_get_max_size(void)
+ {
+    const char *env = getenv("MESA_SHADER_CACHE_MAX_SIZE");
+-   uint64_t max_size = env ? strtoull(env, NULL, 10) : (uint64_t)1 << 30;
++   uint64_t max_size;
++
++   if (env && env[0] != '\0') {
++      max_size = strtoull(env, NULL, 10);
++   } else {
++      max_size = (uint64_t)2 << 30;
++   }
 
--#define DEFAULT_CACHE_MAX_SIZE (512ull * 1024ull * 1024ull)
-+#define DEFAULT_CACHE_MAX_SIZE (2048ull * 1024ull * 1024ull)
-
- static uint64_t
- get_cache_max_size(void)
+    return max_size;
+ }
+--
+2.43.0
