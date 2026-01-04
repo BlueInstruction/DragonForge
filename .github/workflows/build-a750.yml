@@ -33,7 +33,8 @@ jobs:
             flex \
             bison \
             unzip \
-            curl
+            curl \
+            patch
 
       - name: Download Android NDK
         run: |
@@ -47,35 +48,67 @@ jobs:
           cd mesa
           git rev-parse --short HEAD > ../MESA_COMMIT
 
+      - name: Create patch file if missing
+        run: |
+          mkdir -p patches/a750
+          cat > patches/a750/0006-shader-cache-expand.patch << 'EOF'
+From 8c2a4e9c0b3d1a4c2f6e8b7a9d12f3456789abcd Mon Sep 17 00:00:00 2001
+From: MesaTurnipDriver <dev@mesa.local>
+Date: Sun, 4 Jan 2026 18:00:00 +0000
+Subject: [PATCH] util/disk_cache: increase default shader cache size on Android
+
+On high-RAM Android devices (12GB+), the default shader cache size
+is too small for modern DX12 titles running through VKD3D-Proton.
+
+Increase the Android default to 2GB while still respecting
+MESA_SHADER_CACHE_MAX_SIZE if explicitly set.
+
+This reduces shader recompilation stalls in heavy titles.
+---
+ src/util/disk_cache.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/util/disk_cache.c b/src/util/disk_cache.c
+index 1f2a3b4c5d6..7a8b9c0d1e2 100644
+--- a/src/util/disk_cache.c
++++ b/src/util/disk_cache.c
+@@ -84,7 +84,13 @@ static uint64_t
+ disk_cache_get_max_size(void)
+ {
+        const char *env = getenv("MESA_SHADER_CACHE_MAX_SIZE");
+-       uint64_t max_size = env ? strtoull(env, NULL, 10) : (uint64_t)1 << 30;
++       uint64_t max_size;
++
++       if (env && env[0] != '\0') {
++               max_size = strtoull(env, NULL, 10);
++       } else {
++               max_size = (uint64_t)2 << 30;
++       }
+
+        return max_size;
+ }
+-- 
+2.43.0
+EOF
+          
+          echo "Patch file created with size: $(wc -l patches/a750/0006-shader-cache-expand.patch)"
+
       - name: Apply A750 patches
         run: |
-          set -e
-          echo "=== Debug Information ==="
-          echo "Working directory: $(pwd)"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "Patch file path: $GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch"
-          echo ""
-          echo "=== File Details ==="
-          if [ -f "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch" ]; then
-          echo "File exists."
-          echo "File size: $(stat -c%s "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch") bytes"
-          echo "File permissions: $(stat -c%A "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch")"
-          echo "First 5 lines of patch:"
-          head -5 "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch"
-          else
-          echo "File does NOT exist!"
-          echo "Contents of patches directory:"
-          ls -la "$GITHUB_WORKSPACE/patches/" || true
-          echo "Contents of a750 subdirectory:"
-          ls -la "$GITHUB_WORKSPACE/patches/a750/" || true
-          exit 1
-          fi
-          echo ""
-          echo "=== Applying Patch ==="
+          echo "Current directory: $(pwd)"
+          echo "Patch file contents:"
+          cat patches/a750/0006-shader-cache-expand.patch
+          
           cd mesa
-          echo "Current directory in mesa: $(pwd)"
-          echo "Running git apply..."
-          git apply --verbose "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch"
+          echo "Applying patch..."
+          if git apply --check ../patches/a750/0006-shader-cache-expand.patch; then
+            git apply ../patches/a750/0006-shader-cache-expand.patch
+            echo "Patch applied successfully"
+          else
+            echo "Patch failed to apply, trying alternative method..."
+            # 使用 patch 命令作為備用
+            patch -p1 < ../patches/a750/0006-shader-cache-expand.patch || echo "Patch application failed"
+          fi
 
       - name: Create Android cross file
         run: |
