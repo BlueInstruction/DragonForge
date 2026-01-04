@@ -11,16 +11,15 @@ jobs:
     runs-on: ubuntu-24.04
 
     env:
-      TU_A750_SHADER_CACHE: "1"
-      MESA_SHADER_CACHE_MAX_SIZE: "2147483648"
       ANDROID_API: "34"
       NDK_VERSION: "r27d"
+      MESA_SHADER_CACHE_MAX_SIZE: "2147483648"
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           sudo apt update
           sudo apt install -y \
@@ -53,7 +52,7 @@ jobs:
           cd mesa
           git apply ../patches/a750/0006-shader-cache-expand.patch
 
-      - name: Create cross file
+      - name: Create Android cross file
         run: |
           cat > android-aarch64.txt << EOF
           [binaries]
@@ -65,11 +64,11 @@ jobs:
           [host_machine]
           system = 'android'
           cpu_family = 'aarch64'
-          cpu = 'armv9'
+          cpu = 'armv9-a'
           endian = 'little'
           EOF
 
-      - name: Build Turnip
+      - name: Build Turnip Vulkan driver
         run: |
           cd mesa
           meson setup build-android \
@@ -88,13 +87,13 @@ jobs:
           cp build-android/src/freedreno/vulkan/libvulkan_freedreno.so \
             ../out/vulkan.ad07xx.so
 
-      - name: Package
+      - name: Package Turnip driver
         run: |
           cp meta/meta-a750.json out/meta.json
           cd out
           zip -9 turnip-adreno-a750.zip vulkan.ad07xx.so meta.json
 
-      - name: Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: a750-${{ github.run_number }}
