@@ -47,11 +47,35 @@ jobs:
           cd mesa
           git rev-parse --short HEAD > ../MESA_COMMIT
 
-      - name: Apply A750 patch
+      - name: Apply A750 patches
         run: |
           set -e
+          echo "=== Debug Information ==="
+          echo "Working directory: $(pwd)"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "Patch file path: $GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch"
+          echo ""
+          echo "=== File Details ==="
+          if [ -f "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch" ]; then
+          echo "File exists."
+          echo "File size: $(stat -c%s "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch") bytes"
+          echo "File permissions: $(stat -c%A "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch")"
+          echo "First 5 lines of patch:"
+          head -5 "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch"
+          else
+          echo "File does NOT exist!"
+          echo "Contents of patches directory:"
+          ls -la "$GITHUB_WORKSPACE/patches/" || true
+          echo "Contents of a750 subdirectory:"
+          ls -la "$GITHUB_WORKSPACE/patches/a750/" || true
+          exit 1
+          fi
+          echo ""
+          echo "=== Applying Patch ==="
           cd mesa
-          git apply "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch"
+          echo "Current directory in mesa: $(pwd)"
+          echo "Running git apply..."
+          git apply --verbose "$GITHUB_WORKSPACE/patches/a750/0006-shader-cache-expand.patch"
 
       - name: Create Android cross file
         run: |
