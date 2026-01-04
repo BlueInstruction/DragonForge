@@ -47,8 +47,9 @@ jobs:
           cd mesa
           git rev-parse --short HEAD > ../MESA_COMMIT
 
-      - name: Apply Shader Cache Patch
+      - name: Apply A750 patches
         run: |
+          set -e
           cd mesa
           git apply ../patches/a750/0006-shader-cache-expand.patch
 
