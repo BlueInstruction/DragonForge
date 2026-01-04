@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   build-a750:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     env:
       ANDROID_API: "34"
@@ -19,7 +19,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt install -y \
@@ -27,13 +27,18 @@ jobs:
             pkg-config \
             python3-pip \
             python3-mako \
-            meson \
             glslang-tools \
             spirv-tools \
             flex \
             bison \
             unzip \
-            curl
+            curl \
+            patchelf
+
+      - name: Install Meson (pip, required >= 1.4.0)
+        run: |
+          pip3 install --user --upgrade meson
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Download Android NDK
         run: |
@@ -43,17 +48,17 @@ jobs:
 
       - name: Clone Mesa
         run: |
-          git clone https://gitlab.freedesktop.org/mesa/mesa.git mesa
+          git clone https://gitlab.freedesktop.org/mesa/mesa.git
           cd mesa
           git rev-parse --short HEAD > ../MESA_COMMIT
 
-      - name: Apply shader cache patch
+      - name: Apply shader cache change (inline)
         run: |
           set -e
           cd mesa
-
-          echo "Applying shader cache patch (3-way)..."
-          git apply --3way ../0006-shader-cache-expand.patch
+          sed -i \
+            -e "s/return env ? strtoull(env, NULL, 10) : (uint64_t)1 << 30;/if (env && env[0] != '\\0') return strtoull(env, NULL, 10); return (uint64_t)2 << 30;/" \
+            src/util/disk_cache.c
 
       - name: Create Android cross file
         run: |
@@ -78,18 +83,20 @@ jobs:
 
           meson setup build-android \
             --cross-file ../android-aarch64.txt \
+            -Dbuildtype=release \
             -Dplatforms=android \
+            -Dplatform-sdk-version=26 \
             -Dandroid-stub=true \
             -Dvulkan-drivers=freedreno \
             -Dfreedreno-kmds=kgsl \
             -Dgallium-drivers= \
-            -Dbuildtype=release \
-            -Db_lto=true \
-            -Dstrip=true \
+            -Dvideo-codecs= \
             -Dglx=disabled \
             -Degl=disabled \
             -Dgles1=disabled \
-            -Dgles2=disabled
+            -Dgles2=disabled \
+            -Db_lto=true \
+            -Dstrip=true
 
           ninja -C build-android
 
