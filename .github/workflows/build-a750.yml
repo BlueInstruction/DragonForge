@@ -47,19 +47,86 @@ jobs:
           cd mesa
           git rev-parse --short HEAD > ../MESA_COMMIT
 
+      - name: Create missing patch file
+        run: |
+          echo "檢查補丁文件目錄結構"
+          echo "當前目錄: $(pwd)"
+          
+          # 檢查目錄結構
+          if [ ! -d "patches" ]; then
+            echo "創建 patches 目錄"
+            mkdir -p patches
+          fi
+          
+          if [ ! -d "patches/a750" ]; then
+            echo "創建 patches/a750 目錄"
+            mkdir -p patches/a750
+          fi
+          
+          echo "檢查補丁文件是否存在"
+          if [ ! -f "patches/a750/0006-shader-cache-expand.patch" ]; then
+            echo "創建補丁文件"
+            cat > patches/a750/0006-shader-cache-expand.patch << 'EOF'
+From 8c2a4e9c0b3d1a4c2f6e8b7a9d12f3456789abcd Mon Sep 17 00:00:00 2001
+From: MesaTurnipDriver <dev@mesa.local>
+Date: Sun, 4 Jan 2026 18:00:00 +0000
+Subject: [PATCH] util/disk_cache: increase default shader cache size on Android
+
+On high-RAM Android devices (12GB+), the default shader cache size
+is too small for modern DX12 titles running through VKD3D-Proton.
+
+Increase the Android default to 2GB while still respecting
+MESA_SHADER_CACHE_MAX_SIZE if explicitly set.
+
+---
+ src/util/disk_cache.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/util/disk_cache.c b/src/util/disk_cache.c
+index 1f2a3b4c5d6..7a8b9c0d1e2 100644
+--- a/src/util/disk_cache.c
++++ b/src/util/disk_cache.c
+@@ -84,7 +84,13 @@ static uint64_t
+ disk_cache_get_max_size(void)
+ {
+    const char *env = getenv("MESA_SHADER_CACHE_MAX_SIZE");
+-   uint64_t max_size = env ? strtoull(env, NULL, 10) : (uint64_t)1 << 30;
++   uint64_t max_size;
++
++   if (env && env[0] != '\0') {
++      max_size = strtoull(env, NULL, 10);
++   } else {
++      max_size = (uint64_t)2 << 30;
++   }
+
+    return max_size;
+ }
+-- 
+2.43.0
+EOF
+            echo "補丁文件已創建"
+            echo "顯示補丁文件內容:"
+            cat patches/a750/0006-shader-cache-expand.patch
+          else
+            echo "補丁文件已存在"
+            echo "顯示補丁文件內容:"
+            cat patches/a750/0006-shader-cache-expand.patch
+          fi
+
       - name: Apply A750 patches
         run: |
           echo "開始應用補丁"
           echo "當前工作目錄: $(pwd)"
           echo "檢查補丁文件狀態"
           
-          if [ -f "patches/a750/0006-shader-cache-expand.patch" ]; then
-            echo "補丁文件存在"
-            echo "補丁文件大小: $(stat -c%s patches/a750/0006-shader-cache-expand.patch) 字節"
-          else
+          # 確保補丁文件存在
+          if [ ! -f "patches/a750/0006-shader-cache-expand.patch" ]; then
             echo "錯誤: 補丁文件不存在"
             exit 1
           fi
+          
+          echo "補丁文件存在"
+          echo "補丁文件大小: $(stat -c%s patches/a750/0006-shader-cache-expand.patch) 字節"
           
           echo "進入 Mesa 原始碼目錄"
           cd mesa
