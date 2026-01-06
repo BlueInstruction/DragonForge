@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -22,11 +23,92 @@ jobs:
           sudo apt-get install -y python3-pip python3-setuptools python3-mako python3-yaml ninja-build git bison flex libssl-dev zip
           pip3 install meson mako --break-system-packages
 
-      - name: Execute Build Script
+      - name: Build Mesa Turnip Driver
         run: |
-          chmod +x scripts/build_turnip.sh
-          ./scripts/build_turnip.sh
+          set -e
 
+          # Configuration
+          MESA_VERSION="mesa-25.3.3"
+          MESA_URL="https://gitlab.freedesktop.org/mesa/mesa.git"
+          BUILD_DIR="build-android"
+          OUTPUT_DIR="build_output"
+          ANDROID_API_LEVEL="29"
+
+          mkdir -p "$OUTPUT_DIR"
+          rm -rf mesa "$BUILD_DIR"
+
+          echo ">>> Cloning Mesa..."
+          git clone --depth 1 --branch "$MESA_VERSION" "$MESA_URL" mesa
+
+          echo ">>> Applying Turnip environment injection..."
+          cd mesa
+          
+          TARGET_FILE=$(find src -name "tu_device.c" | head -n 1)
+          if [ -z "$TARGET_FILE" ] || [ ! -f "$TARGET_FILE" ]; then
+              echo "ERROR: tu_device.c not found!"
+              find src/freedreno -maxdepth 3 || ls -R src/
+              exit 1
+          fi
+
+          sed -i '/instance->api_version = TU_API_VERSION;/a \
+\
+   if (!getenv("FD_DEV_FEATURES")) { setenv("FD_DEV_FEATURES", "enable_tp_ubwc_flag_hint=1", 1); } \
+   if (!getenv("MESA_SHADER_CACHE_MAX_SIZE")) { setenv("MESA_SHADER_CACHE_MAX_SIZE", "1024M", 1); } \
+   if (!getenv("TU_DEBUG")) { setenv("TU_DEBUG", "force_unaligned_device_local", 1); }' "$TARGET_FILE"
+
+          echo ">>> Creating Meson cross-file..."
+          cat <<EOF > android-aarch64
+[binaries]
+c = 'aarch64-linux-android29-clang'
+cpp = 'aarch64-linux-android29-clang++'
+ar = 'llvm-ar'
+strip = 'llvm-strip'
+pkgconfig = 'pkg-config'
+
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[properties]
+c_args = ['-march=armv8.5-a', '-mtune=cortex-x4', '-O3', '-fno-plt']
+cpp_args = ['-march=armv8.5-a', '-mtune=cortex-x4', '-O3', '-fno-plt']
+EOF
+
+          meson setup "$BUILD_DIR" \
+              --cross-file android-aarch64 \
+              --buildtype=release \
+              -Dplatforms=android \
+              -Dplatform-sdk-version="$ANDROID_API_LEVEL" \
+              -Dandroid-stub=true \
+              -Dgallium-drivers= \
+              -Dvulkan-drivers=freedreno \
+              -Dfreedreno-kmds=kgsl \
+              -Db_lto=true \
+              -Doptimization=3 \
+              -Dstrip=true \
+              -Dllvm=disabled
+
+          echo ">>> Compiling..."
+          ninja -C "$BUILD_DIR"
+
+          DRIVER_LIB=$(find "$BUILD_DIR" -name "libvulkan_freedreno.so" | head -n 1)
+          cp "$DRIVER_LIB" ../"$OUTPUT_DIR"/vulkan.ad07xx.so
+
+          cd ../"$OUTPUT_DIR"
+          cat <<EOF > meta.json
+{
+  "name": "Turnip v25.3.3 - Adreno 750 Optimized",
+  "version": "25.3.3",
+  "description": "Custom A750 build with Turnip environment overrides.",
+  "library": "vulkan.ad07xx.so"
+}
+EOF
+
+          zip -r turnip_adreno750_optimized.zip vulkan.ad07xx.so meta.json
+          echo ">>> Build Complete."
+      
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
