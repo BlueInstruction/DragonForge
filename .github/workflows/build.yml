@@ -1,4 +1,5 @@
 name: Build Mesa Turnip v25.3.3 Android
+
 on:
   push:
     branches:
@@ -34,22 +35,22 @@ jobs:
       - name: Create Android cross file
         run: |
           cat > android-aarch64 << EOF
-[binaries]
-c = '$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang'
-cpp = '$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang++'
-ar = '$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
-strip = '$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          [binaries]
+          c = '$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang'
+          cpp = '$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang++'
+          ar = '$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
 
-[host_machine]
-system = 'android'
-cpu_family = 'aarch64'
-cpu = 'armv8'
-endian = 'little'
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'armv8'
+          endian = 'little'
 
-[properties]
-c_args = ['-march=armv8.5-a', '-mtune=cortex-x4', '-O3', '-fno-plt']
-cpp_args = ['-march=armv8.5-a', '-mtune=cortex-x4', '-O3', '-fno-plt']
-EOF
+          [properties]
+          c_args = ['-march=armv8.5-a', '-mtune=cortex-x4', '-O3', '-fno-plt']
+          cpp_args = ['-march=armv8.5-a', '-mtune=cortex-x4', '-O3', '-fno-plt']
+          EOF
 
       - name: Clone Mesa 25.3.3
         run: |
@@ -68,10 +69,10 @@ EOF
 
           # Inject environment overrides
           sed -i '/instance->api_version = TU_API_VERSION;/a \
-\
-   if (!getenv("FD_DEV_FEATURES")) { setenv("FD_DEV_FEATURES", "enable_tp_ubwc_flag_hint=1", 1); } \
-   if (!getenv("MESA_SHADER_CACHE_MAX_SIZE")) { setenv("MESA_SHADER_CACHE_MAX_SIZE", "1024M", 1); } \
-   if (!getenv("TU_DEBUG")) { setenv("TU_DEBUG", "force_unaligned_device_local", 1); }' "$TARGET_FILE"
+          \
+          if (!getenv("FD_DEV_FEATURES")) { setenv("FD_DEV_FEATURES", "enable_tp_ubwc_flag_hint=1", 1); } \
+          if (!getenv("MESA_SHADER_CACHE_MAX_SIZE")) { setenv("MESA_SHADER_CACHE_MAX_SIZE", "1024M", 1); } \
+          if (!getenv("TU_DEBUG")) { setenv("TU_DEBUG", "force_unaligned_device_local", 1); }' "$TARGET_FILE"
 
           # Apply extra patches (optional)
           curl -L -o prefer_sysmem.patch https://raw.githubusercontent.com/K11MCH1/AdrenoToolsDrivers/main/patches/prefer_sysmem.patch || true
@@ -104,24 +105,24 @@ EOF
       - name: Create meta.json with features
         run: |
           cat > meta.json << EOF
-{
-  "schemaVersion": 1,
-  "name": "Mesa Turnip",
-  "vendor": "Mesa",
-  "driver": "turnip",
-  "minApi": 29,
-  "libraryName": "vulkan.ad07xx.so",
-  "features": [
-    "Environment overrides to enable:",
-    "- UBWC hints (FD_DEV_FEATURES)",
-    "- Large shader cache (MESA_SHADER_CACHE_MAX_SIZE=1024M)",
-    "- Force unaligned device-local memory (TU_DEBUG)",
-    "Optimized build flags for Adreno 750 (-O3, -march=armv8.5-a, -mtune=cortex-x4)",
-    "Full cross-compilation support for Android API level 29",
-    "Packaged output with vulkan.ad07xx.so and metadata"
-  ]
-}
-EOF
+          {
+            "schemaVersion": 1,
+            "name": "Mesa Turnip",
+            "vendor": "Mesa",
+            "driver": "turnip",
+            "minApi": 29,
+            "libraryName": "vulkan.ad07xx.so",
+            "features": [
+              "Environment overrides to enable:",
+              "- UBWC hints (FD_DEV_FEATURES)",
+              "- Large shader cache (MESA_SHADER_CACHE_MAX_SIZE=1024M)",
+              "- Force unaligned device-local memory (TU_DEBUG)",
+              "Optimized build flags for Adreno 750 (-O3, -march=armv8.5-a, -mtune=cortex-x4)",
+              "Full cross-compilation support for Android API level 29",
+              "Packaged output with vulkan.ad07xx.so and metadata"
+            ]
+          }
+          EOF
 
       - name: Package Mesa Turnip
         run: |
