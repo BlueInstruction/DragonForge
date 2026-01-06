@@ -15,42 +15,20 @@ rm -rf mesa "$BUILD_DIR"
 echo ">>> [2/6] Cloning Mesa ($MESA_VERSION)..."
 git clone --depth 1 --branch "$MESA_VERSION" "$MESA_URL" mesa
 
-echo ">>> [3/6] Applying Turnip environment injection..."
+echo ">>> [3/6] Applying Turnip patch..."
 cd mesa
 
-# Find the file containing the TU_API_VERSION assignment (robust for Mesa 24.x/25.x)
-TARGET_FILE=$(grep -Rwl "instance->api_version = TU_API_VERSION;" src/freedreno/vulkan || true)
-
-if [ -z "$TARGET_FILE" ] || [ ! -f "$TARGET_FILE" ]; then
-    echo "CRITICAL ERROR: TU_API_VERSION assignment not found."
-    echo "Debug dump:"
-    grep -R "TU_API_VERSION" src/freedreno/vulkan || true
+if [ ! -f "../patches/0001-tu-env-overrides.patch" ]; then
+    echo "ERROR: Patch file not found: patches/0001-tu-env-overrides.patch"
     exit 1
 fi
 
-echo "Injecting into file: $TARGET_FILE"
-
-# Inject environment overrides directly after the api_version assignment
-sed -i '/instance->api_version = TU_API_VERSION;/a \
-\
-   if (!getenv("FD_DEV_FEATURES")) {\
-       setenv("FD_DEV_FEATURES", "enable_tp_ubwc_flag_hint=1", 1);\
-   }\
-   if (!getenv("MESA_SHADER_CACHE_MAX_SIZE")) {\
-       setenv("MESA_SHADER_CACHE_MAX_SIZE", "1024M", 1);\
-   }\
-   if (!getenv("TU_DEBUG")) {\
-       setenv("TU_DEBUG", "force_unaligned_device_local", 1);\
-   }' "$TARGET_FILE"
-
-echo "Verification:"
-grep -n "setenv(" "$TARGET_FILE"
+git apply --3way ../patches/0001-tu-env-overrides.patch
 
 cd ..
 
 echo ">>> [4/6] Configuring Meson..."
 
-# Cross file must exist at repo root with exact name
 if [ ! -f "android-aarch64" ]; then
     echo "ERROR: Cross file 'android-aarch64' not found in repository root."
     exit 1
