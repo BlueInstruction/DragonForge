@@ -1,9 +1,11 @@
-# Mesa Turnip Driver for Android Emulators
+# MesaTurnipDriver
 
-Automated build system for the Mesa Turnip driver targeting Android emulators
-that support loading custom GPU drivers via Adreno Tools.
+Custom build scripts for Mesa3D Turnip Vulkan driver targeting Adreno 6xx/7xx GPUs.
 
-This repository focuses exclusively on building the Turnip driver from
-upstream Mesa source for Adreno GPUs on Android.
+## Version
+Mesa 25.3.3+
 
-
+## Build
+```bash
+export ANDROID_NDK=/path/to/ndk
+bash scripts/build_turinp
