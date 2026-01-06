@@ -1,21 +1,15 @@
-# Mesa Turnip Driver for Android (Adreno 6xx/7xx)
+# Mesa Turnip Driver - Adreno 750 Optimized Build
 
-Automated build repository for Mesa 25.3.3 optimized for Adreno 7xx/750 GPUs.
-Designed for use with Android Emulators like Winlator, Cmod, and Mobox.
+This repository provides a **custom build of the Turnip Vulkan driver** for Adreno 7xx GPUs, optimized specifically for Android devices using **Mesa 25.3.3**.
 
 ## Features
-* **Version:** Mesa 25.3.3 (Stable)
-* **Driver:** Turnip (Vulkan)
-* **Backend:** KGSL (Kernel Graphics Support Layer)
-* **Optimizations:** LTO enabled, Release build, Strip enabled.
 
-## Build Usage
-1.  Fork this repository.
-2.  Go to **Actions** tab.
-3.  Select **Build Mesa Turnip Android**.
-4.  Run Workflow.
-5.  Download the ZIP from the resulting Artifacts.
+- Environment overrides to enable:
+  - UBWC hints (`FD_DEV_FEATURES`)
+  - Large shader cache (`MESA_SHADER_CACHE_MAX_SIZE=1024M`)
+  - Force unaligned device-local memory (`TU_DEBUG`)
+- Optimized build flags for **Adreno 750** (`-O3`, `-march=armv8.5-a`, `-mtune=cortex-x4`)
+- Full **cross-compilation support** for Android API level 29
+- Packaged output with `vulkan.ad07xx.so` and metadata for easy integration
 
-## Installation in Winlator
-1.  Extract the downloaded ZIP.
-2.  Import the JSON/SO file via the Winlator driver settings or place manually in the driver folder.
+## Repository Structure
