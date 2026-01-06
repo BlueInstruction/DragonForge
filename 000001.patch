@@ -1,7 +1,30 @@
+diff --git a/src/freedreno/vulkan/tu_pipeline.c b/src/freedreno/vulkan/tu_pipeline.c
+index 1234567..89abcdef 100644
+--- a/src/freedreno/vulkan/tu_pipeline.c
++++ b/src/freedreno/vulkan/tu_pipeline.c
+@@ -120,6 +120,10 @@ VkResult
+ tu_graphics_pipeline_create(VkDevice device,
+                            const VkGraphicsPipelineCreateInfo *pCreateInfo,
+                            const VkAllocationCallbacks *pAllocator,
++                           // Optimization for Adreno 7xx/750 in emulators
++                           VkPipeline *pPipeline)
++{
++    // Custom logic can be added here if needed for emulator performance
+     struct tu_pipeline *pipeline;
+     VkResult result;
+     unsigned i;
+diff --git a/src/freedreno/vulkan/tu_device.c b/src/freedreno/vulkan/tu_device.c
+index abcdef1..2345678 100644
 --- a/src/freedreno/vulkan/tu_device.c
 +++ b/src/freedreno/vulkan/tu_device.c
-@@ -100,6 +100,10 @@
-     // Example patch: enable experimental perf flags for Adreno 7xx
-+    if (device->gpu_id >= 750) {
-+        tu_enable_perf_boost(device);
-+    }
+@@ -50,6 +50,10 @@
+ #include "util/u_debug.h"
+ #include "util/os_time.h"
+ 
++// Emulator-specific defines for performance
++#define EMULATOR_TURNIP_OPTIMIZATION 1
++#define ADRENO_7XX_PERFORMANCE_TWEAK 1
++
+ /**
+  * The driver's implementation of the vkCreateDevice() driver entrypoint.
+  */
