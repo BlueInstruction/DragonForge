@@ -24,18 +24,9 @@ jobs:
 
       - name: Build Turnip Driver
         run: |
-          # Detect the script filename (handles build_turnip or build_turnip.sh)
-          SCRIPT_PATH=$(find scripts -name "build_turnip*" | head -n 1)
-          
-          if [ -z "$SCRIPT_PATH" ]; then
-            echo "ERROR: Build script not found in scripts/ directory."
-            ls -R
-            exit 1
-          fi
-          
-          echo "Found script at: $SCRIPT_PATH"
-          chmod +x "$SCRIPT_PATH"
-          ./"$SCRIPT_PATH"
+          # Use the .sh version found in your repo
+          chmod +x scripts/build_turnip.sh
+          ./scripts/build_turnip.sh
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
