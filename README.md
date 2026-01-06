@@ -1,4 +1,4 @@
-# Mesa Turnip Driver - Adreno 750 Optimized Build
+# Mesa Turnip Driver - Adreno 7xx Optimized Build
 
 This repository provides a **custom build of the Turnip Vulkan driver** for Adreno 7xx GPUs, optimized specifically for Android devices using **Mesa 25.3.3**.
 
