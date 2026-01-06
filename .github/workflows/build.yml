@@ -61,14 +61,19 @@ jobs:
       - name: Apply inline patches and environment overrides
         run: |
           cd mesa
-          TARGET_FILE=$(find src -name "tu_device.c" | head -n 1)
-          if [ -z "$TARGET_FILE" ] || [ ! -f "$TARGET_FILE" ]; then
-              echo "ERROR: tu_device.c not found!"
+          TARGET_FILE="src/freedreno/vulkan/tu_instance.c"
+          if [ ! -f "$TARGET_FILE" ]; then
+              echo "ERROR: $TARGET_FILE not found!"
               exit 1
           fi
 
+          # Ensure #include <stdlib.h> is present for setenv
+          if ! grep -q '#include <stdlib.h>' "$TARGET_FILE"; then
+              sed -i '/#include/ a #include <stdlib.h>' "$TARGET_FILE"
+          fi
+
           # Inject environment overrides
-          sed -i '/instance->api_version = TU_API_VERSION;/a \
+          sed -i '/instance->api_version = tu_instance_api_version(pCreateInfo);/a \
           \
           if (!getenv("FD_DEV_FEATURES")) { setenv("FD_DEV_FEATURES", "enable_tp_ubwc_flag_hint=1", 1); } \
           if (!getenv("MESA_SHADER_CACHE_MAX_SIZE")) { setenv("MESA_SHADER_CACHE_MAX_SIZE", "1024M", 1); } \
