@@ -31,8 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build python3-pip python3-mako \
-            flex bison patchelf curl unzip clang lld llvm pkg-config \
-            libdrm-dev cmake
+            flex bison patchelf curl unzip clang lld llvm pkg-config cmake
 
       - name: Build Glslang from Source
         run: |
@@ -83,6 +82,9 @@ jobs:
           cpu_family = 'aarch64'
           cpu = 'armv8'
           endian = 'little'
+          
+          [properties]
+          sys_root = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
           EOF
           
           meson setup build-android \
@@ -91,7 +93,7 @@ jobs:
             -Dplatform-sdk-version=34 \
             -Dandroid-stub=true \
             -Dvulkan-drivers=freedreno \
-            -Dfreedreno-kmds=msm,kgsl \
+            -Dfreedreno-kmds=kgsl \
             -Dbuildtype=release \
             -Dopengl=false \
             -Degl=disabled \
@@ -103,6 +105,7 @@ jobs:
             -Dzstd=disabled \
             -Dzlib=disabled \
             -Dshader-cache=disabled \
+            -Dlibdrm=disabled \
             -Dtools=
             
           ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so
