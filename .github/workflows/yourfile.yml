@@ -1,4 +1,4 @@
-name: Turnip Builder 07xx
+name: Turnip Builder 07xx - Meson Fix
 
 on:
   workflow_dispatch:
@@ -27,9 +27,18 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y meson ninja-build python3-pip python3-mako \
+          # We install python3-pip but NOT the system meson
+          sudo apt-get install -y ninja-build python3-pip python3-mako \
             flex bison patchelf curl unzip clang lld llvm pkg-config \
             glslang-tools libdrm-dev
+
+      - name: Upgrade Meson (Fix version error)
+        run: |
+          # Install latest Meson via pip
+          pip3 install --upgrade pip
+          pip3 install meson
+          # Ensure the pip-installed meson is in the PATH
+          echo "/home/runner/.local/bin" >> $GITHUB_PATH
 
       - name: Setup NDK
         run: |
@@ -44,6 +53,10 @@ jobs:
       - name: Build
         run: |
           cd mesa-source
+          
+          # Verify meson version
+          meson --version
+          
           cat > android_cross.ini << EOF
           [binaries]
           c = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang'
@@ -59,14 +72,23 @@ jobs:
           endian = 'little'
           EOF
           
-          # Force Gen 7+ KMDs
-          meson setup build-android --cross-file android_cross.ini -Dplatforms=android -Dplatform-sdk-version=34 -Dandroid-stub=true -Dvulkan-drivers=freedreno -Dfreedreno-kmds=msm,kgsl -Dbuildtype=release -Dopengl=false -Dtools=
+          meson setup build-android \
+            --cross-file android_cross.ini \
+            -Dplatforms=android \
+            -Dplatform-sdk-version=34 \
+            -Dandroid-stub=true \
+            -Dvulkan-drivers=freedreno \
+            -Dfreedreno-kmds=msm,kgsl \
+            -Dbuildtype=release \
+            -Dopengl=false \
+            -Dtools=
+            
           ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so
 
       - name: Final Rename and Upload
         run: |
           mkdir -p final_zip
-          # Renaming to your requested format
+          # Renaming to your specific 07xx format
           cp mesa-source/build-android/src/freedreno/vulkan/libvulkan_freedreno.so final_zip/vulkan.ad07xx.so
           
       - name: Upload Artifact
