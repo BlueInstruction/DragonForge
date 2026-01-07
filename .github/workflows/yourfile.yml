@@ -24,19 +24,6 @@ on:
         required: false
         default: true
         type: boolean
-      optimization_level:
-        description: 'Build optimization level'
-        required: false
-        default: 'aggressive'
-        type: choice
-        options:
-          - balanced
-          - aggressive
-          - size-optimized
-
-env:
-  ANDROID_NDK_VERSION: 'r26d'
-  ANDROID_API_LEVEL: '34'
 
 permissions:
   contents: write
@@ -57,42 +44,41 @@ jobs:
         with:
           path: source
           
-      - name: Select optimal Mesa source
+      - name: Select Mesa Source
         id: select-source
-        run: |
-          echo "selected_source=https://gitlab.freedesktop.org/mesa/mesa.git" >> $GITHUB_OUTPUT
+        run: echo "selected_source=https://gitlab.freedesktop.org/mesa/mesa.git" >> $GITHUB_OUTPUT
           
-      - name: Device-specific configuration
+      - name: Device Config
         id: device-config
         run: |
           DEVICE="${{ github.event.inputs.target_device }}"
           case $DEVICE in
-            "adreno-730") CONFIG='{"gpu_id":"730","arch":"a6xx","kmds":["kgsl"],"patches":["tu6-optimizations"],"min_api":31}' ;;
-            "adreno-740") CONFIG='{"gpu_id":"740","arch":"a7xx","kmds":["kgsl"],"patches":["gen7-support"],"min_api":33}' ;;
-            "adreno-750") CONFIG='{"gpu_id":"750","arch":"a7xx","kmds":["msm","kgsl"],"patches":["gen8-support"],"min_api":34}' ;;
-            *) CONFIG='{"gpu_id":"generic","arch":"a6xx","kmds":["kgsl"],"patches":[],"min_api":27}' ;;
+            "adreno-750") CONFIG='{"gpu_id":"750","kmds":["msm","kgsl"],"patches":["gen8-support"]}' ;;
+            "adreno-740") CONFIG='{"gpu_id":"740","kmds":["kgsl"],"patches":["gen7-support"]}' ;;
+            *) CONFIG='{"gpu_id":"generic","kmds":["kgsl"],"patches":[]}' ;;
           esac
           echo "config=$CONFIG" >> $GITHUB_OUTPUT
 
-      - name: Prepare Patches for Upload
+      - name: Prepare Patches
         run: |
-          # Create the directory if it doesn't exist
-          mkdir -p ${{ github.workspace }}/patches-to-upload
+          # Create a specific directory for the transfer
+          mkdir -p ${{ github.workspace }}/transfer_patches
           
-          # If you have patches in your source, copy them
+          # Force a dummy file so the artifact is NOT empty (prevents download errors)
+          touch ${{ github.workspace }}/transfer_patches/.keep_alive
+          
+          # Copy any repo patches if they exist
           if [ -d "source/patches" ]; then
-            cp -r source/patches/* ${{ github.workspace }}/patches-to-upload/ 2>/dev/null || true
+            cp -r source/patches/* ${{ github.workspace }}/transfer_patches/ 2>/dev/null || true
           fi
-          
-          # SAFETY: Ensure the directory is NEVER empty so the upload-artifact doesn't skip
-          touch ${{ github.workspace }}/patches-to-upload/.keep_alive
 
-      - name: Upload Patches Artifact
+      - name: Upload Patches
         uses: actions/upload-artifact@v4
         with:
           name: patches-bundle
-          path: ${{ github.workspace }}/patches-to-upload/
-          retention-days: 1
+          path: ${{ github.workspace }}/transfer_patches/
+          retention-days: 1 # Artifacts expire based on settings
+          compression-level: 6 # Default compression for best balance
 
   build-turnip:
     needs: setup-environment
@@ -107,40 +93,32 @@ jobs:
           name: patches-bundle
           path: source/patches/
           
-      - name: Install Build Dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y meson ninja-build python3-pip python3-mako flex bison \
             patchelf curl unzip clang lld llvm libclang-dev pkg-config jq
           pip3 install --break-system-packages --upgrade meson mako
           
-      - name: Setup Android NDK
+      - name: Setup NDK
         run: |
-          curl -L -o ndk.zip "https://dl.google.com/android/repository/android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip"
+          curl -L -o ndk.zip "https://dl.google.com/android/repository/android-ndk-r26d-linux.zip"
           unzip -q ndk.zip
-          echo "NDK_PATH=$PWD/android-ndk-${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
+          echo "NDK_PATH=$PWD/android-ndk-r26d" >> $GITHUB_ENV
           
-      - name: Clone Mesa
+      - name: Clone and Build
         run: |
           git clone --depth 1 --branch ${{ github.event.inputs.mesa_branch }} ${{ needs.setup-environment.outputs.mesa_source }} mesa-source
           cd mesa-source
-          echo "MESA_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           
-      - name: Configure and Build
-        run: |
-          cd mesa-source
-          DEVICE_CONFIG='${{ needs.setup-environment.outputs.device_config }}'
-          KMD_LIST=$(echo "$DEVICE_CONFIG" | jq -r '.kmds | join(",")')
-          
+          # Generate Cross File
           cat > android_cross.ini << EOF
           [binaries]
-          c = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.ANDROID_API_LEVEL }}-clang'
-          cpp = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.ANDROID_API_LEVEL }}-clang++'
+          c = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang'
+          cpp = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang++'
           ar = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
           strip = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
           ld = 'lld'
-          [properties]
-          needs_exe_wrapper = true
           [host_machine]
           system = 'android'
           cpu_family = 'aarch64'
@@ -148,11 +126,11 @@ jobs:
           endian = 'little'
           EOF
           
-          meson setup build-android --cross-file android_cross.ini -Dplatforms=android -Dvulkan-drivers=freedreno -Dfreedreno-kmds=$KMD_LIST -Dbuildtype=release
+          meson setup build-android --cross-file android_cross.ini -Dplatforms=android -Dvulkan-drivers=freedreno -Dbuildtype=release
           ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so
 
-      - name: Upload Driver
+      - name: Upload Results
         uses: actions/upload-artifact@v4
         with:
-          name: turnip-${{ github.event.inputs.target_device }}-${{ env.MESA_COMMIT }}
+          name: turnip-driver-${{ github.event.inputs.target_device }}
           path: mesa-source/build-android/src/freedreno/vulkan/libvulkan_freedreno.so
