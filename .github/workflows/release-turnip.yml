@@ -101,8 +101,8 @@ jobs:
           sys_root = '$NDK_SYSROOT'
           
           [built-in options]
-          c_args = ['-I$NDK_SYSROOT/usr/include']
-          cpp_args = ['-I$NDK_SYSROOT/usr/include']
+          c_args = ['-I$NDK_SYSROOT/usr/include', '-g', '-O2']
+          cpp_args = ['-I$NDK_SYSROOT/usr/include', '-g', '-O2']
           c_link_args = ['-L$NDK_SYSROOT/usr/lib/aarch64-linux-android/34', '-lz']
           cpp_link_args = ['-L$NDK_SYSROOT/usr/lib/aarch64-linux-android/34', '-lz']
           pkg_config_path = ''
@@ -115,7 +115,9 @@ jobs:
             -Dandroid-stub=true \
             -Dvulkan-drivers=freedreno \
             -Dfreedreno-kmds=kgsl \
-            -Dbuildtype=release \
+            -Dbuildtype=debugoptimized \
+            -Dstrip=false \
+            -Db_ndebug=false \
             -Dopengl=false \
             -Degl=disabled \
             -Dgles1=disabled \
@@ -131,11 +133,36 @@ jobs:
 
       - name: Prepare Artifact
         run: |
-          mkdir -p release_assets
+          mkdir -p release_assets/turnip_package
           DEVICE="${{ github.event.inputs.target_device || 'adreno-750' }}"
           MESA_BRANCH="${{ github.event.inputs.mesa_branch || 'mesa-25.3.3' }}"
-          cp mesa-source/build-android/src/freedreno/vulkan/libvulkan_freedreno.so "release_assets/vulkan.turnip-${DEVICE}.so"
-          echo "RELEASE_TAG=v${MESA_BRANCH}-${DEVICE}" >> $GITHUB_ENV
+          VERSION="${MESA_BRANCH#mesa-}"
+          
+          # Copy the driver (no stripping)
+          cp mesa-source/build-android/src/freedreno/vulkan/libvulkan_freedreno.so release_assets/turnip_package/libvulkan_freedreno.so
+          
+          # Create meta.json
+          cat > release_assets/turnip_package/meta.json << EOF
+          {
+            "schemaVersion": 1,
+            "name": "Mesa v${VERSION}",
+            "description": "Mesa ${VERSION} Turnip Driver for ${DEVICE}",
+            "author": "Mesa Project",
+            "packageVersion": "${VERSION}",
+            "vendor": "Mesa",
+            "driverVersion": "${VERSION}",
+            "minApi": 34,
+            "libraryName": "libvulkan_freedreno.so"
+          }
+          EOF
+          
+          # Create zip
+          cd release_assets/turnip_package
+          zip -r ../turnip_mesa-v${VERSION}.zip .
+          cd ..
+          rm -rf turnip_package
+          
+          echo "RELEASE_TAG=v${VERSION}-${DEVICE}" >> $GITHUB_ENV
           echo "MESA_BRANCH=${MESA_BRANCH}" >> $GITHUB_ENV
           echo "DEVICE=${DEVICE}" >> $GITHUB_ENV
 
@@ -145,7 +172,7 @@ jobs:
           gh release create "${{ env.RELEASE_TAG }}" \
             --title "Turnip Driver for Mesa ${{ env.MESA_BRANCH }} on ${{ env.DEVICE }}" \
             --notes "Built for ${{ env.DEVICE }} from Mesa ${{ env.MESA_BRANCH }}." \
-            release_assets/*
+            release_assets/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -153,5 +180,5 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: Turnip-vulkan-${{ github.event.inputs.target_device }}
-          path: release_assets/*
+          name: turnip_mesa-v${{ github.event.inputs.mesa_branch || 'mesa-25.3.3' }}
+          path: release_assets/*.zip
