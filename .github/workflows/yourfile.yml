@@ -1,0 +1,147 @@
+name: Advanced Turnip Builder with Auto-Patching
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_branch:
+        description: 'Mesa branch/tag (default: main)'
+        required: false
+        default: 'main'
+        type: string
+      target_device:
+        description: 'Target Adreno device'
+        required: false
+        default: 'adreno-750'
+        type: choice
+        options:
+          - adreno-730
+          - adreno-740
+          - adreno-750
+          - generic-a6xx
+          - generic-a7xx
+      enable_auto_patches:
+        description: 'Enable automatic patch updates'
+        required: false
+        default: true
+        type: boolean
+      optimization_level:
+        description: 'Build optimization level'
+        required: false
+        default: 'aggressive'
+        type: choice
+        options:
+          - balanced
+          - aggressive
+          - size-optimized
+
+env:
+  ANDROID_NDK_VERSION: 'r26d'
+  ANDROID_API_LEVEL: '34'
+
+permissions:
+  contents: write
+
+jobs:
+  setup-environment:
+    runs-on: ubuntu-22.04
+    outputs:
+      mesa_source: ${{ steps.select-source.outputs.selected_source }}
+      device_config: ${{ steps.device-config.outputs.config }}
+    
+    steps:
+      - name: Install Prerequisites
+        run: sudo apt-get update && sudo apt-get install -y jq curl git
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: source
+          
+      - name: Select optimal Mesa source
+        id: select-source
+        run: |
+          echo "selected_source=https://gitlab.freedesktop.org/mesa/mesa.git" >> $GITHUB_OUTPUT
+          
+      - name: Device-specific configuration
+        id: device-config
+        run: |
+          DEVICE="${{ github.event.inputs.target_device }}"
+          case $DEVICE in
+            "adreno-730") CONFIG='{"gpu_id":"730","arch":"a6xx","kmds":["kgsl"],"patches":["tu6-optimizations"],"min_api":31}' ;;
+            "adreno-740") CONFIG='{"gpu_id":"740","arch":"a7xx","kmds":["kgsl"],"patches":["gen7-support"],"min_api":33}' ;;
+            "adreno-750") CONFIG='{"gpu_id":"750","arch":"a7xx","kmds":["msm","kgsl"],"patches":["gen8-support"],"min_api":34}' ;;
+            *) CONFIG='{"gpu_id":"generic","arch":"a6xx","kmds":["kgsl"],"patches":[],"min_api":27}' ;;
+          esac
+          echo "config=$CONFIG" >> $GITHUB_OUTPUT
+
+      - name: Upload Empty Patches if none exist
+        run: mkdir -p patches && touch patches/.keep
+      
+      - name: Upload Patches Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: patches-bundle
+          path: patches/
+
+  build-turnip:
+    needs: setup-environment
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Download Patches
+        uses: actions/download-artifact@v4
+        with:
+          name: patches-bundle
+          path: source/patches/
+          
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build python3-pip python3-mako flex bison \
+            patchelf curl unzip clang lld llvm libclang-dev pkg-config jq
+          pip3 install --upgrade meson mako
+          
+      - name: Setup Android NDK
+        run: |
+          curl -L -o ndk.zip "https://dl.google.com/android/repository/android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip"
+          unzip -q ndk.zip
+          echo "NDK_PATH=$PWD/android-ndk-${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
+          
+      - name: Clone Mesa
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.mesa_branch }} ${{ needs.setup-environment.outputs.mesa_source }} mesa-source
+          cd mesa-source
+          echo "MESA_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          
+      - name: Configure and Build
+        run: |
+          cd mesa-source
+          DEVICE_CONFIG='${{ needs.setup-environment.outputs.device_config }}'
+          KMD_LIST=$(echo "$DEVICE_CONFIG" | jq -r '.kmds | join(",")')
+          
+          cat > android_cross.ini << EOF
+          [binaries]
+          c = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.ANDROID_API_LEVEL }}-clang'
+          cpp = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${{ env.ANDROID_API_LEVEL }}-clang++'
+          ar = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          ld = 'lld'
+          [properties]
+          needs_exe_wrapper = true
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'armv8'
+          endian = 'little'
+          EOF
+          
+          meson setup build-android --cross-file android_cross.ini -Dplatforms=android -Dvulkan-drivers=freedreno -Dfreedreno-kmds=$KMD_LIST -Dbuildtype=release
+          ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: turnip-${{ github.event.inputs.target_device }}
+          path: mesa-source/build-android/src/freedreno/vulkan/libvulkan_freedreno.so
