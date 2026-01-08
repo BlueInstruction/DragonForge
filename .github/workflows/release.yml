@@ -13,7 +13,6 @@ on:
           - regular
           - gmem
           - sysmem
-          - a8xx
           - autotuner
       enable_lrz:
         description: 'Enable LRZ'
@@ -47,9 +46,6 @@ jobs:
           - variant: sysmem
             suffix: "_Sysmem"
             c_args: "-DTU_DEFAULT_SYSMEM=1"
-          - variant: a8xx
-            suffix: "_a8xx"
-            c_args: "-DEXPERIMENTAL_A8XX=1"
           - variant: autotuner
             suffix: "_Autotuner"
             c_args: ""
@@ -106,14 +102,6 @@ jobs:
           git clone --depth 100 https://gitlab.freedesktop.org/mesa/mesa.git
           cd mesa && git checkout ${{ env.MESA_COMMIT }}
 
-      - name: Apply a8xx Patches
-        if: steps.check.outputs.run == 'true' && matrix.variant == 'a8xx'
-        run: |
-          cd mesa
-          git remote add robclark https://gitlab.freedesktop.org/robclark/mesa.git
-          git fetch robclark tu/gen8
-          git merge --no-commit --no-ff FETCH_HEAD || true
-
       - name: Configure
         if: steps.check.outputs.run == 'true'
         run: |
@@ -130,7 +118,7 @@ jobs:
           [host_machine]
           system = 'android'
           cpu_family = 'aarch64'
-          cpu = 'armv9-a'
+          cpu = 'armv8'
           endian = 'little'
           EOF
           
@@ -149,8 +137,8 @@ jobs:
             -Dopengl=false \
             -Degl=disabled \
             -Dshader-cache=disabled \
-            -Dc_args="-I$SYSROOT/usr/include -O3 -march=armv9-a+crypto -g0 ${{ matrix.c_args }}" \
-            -Dcpp_args="-I$SYSROOT/usr/include -O3 -march=armv9-a+crypto -g0 ${{ matrix.c_args }}" \
+            -Dc_args="-I$SYSROOT/usr/include -O3 -g0 ${{ matrix.c_args }}" \
+            -Dcpp_args="-I$SYSROOT/usr/include -O3 -g0 ${{ matrix.c_args }}" \
             -Dc_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -lz" \
             -Dcpp_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -lz"
 
@@ -164,27 +152,19 @@ jobs:
         if: steps.check.outputs.run == 'true'
         run: |
           mkdir -p release/out/lib64
-          cp mesa/build/src/freedreno/vulkan/libvulkan_freedreno.so release/out/lib64/vulkan.adreno.so
-          
-          LRZ="${{ github.event.inputs.enable_lrz }}"
-          TU_DEBUG=""
-          [ "$LRZ" = "false" ] && TU_DEBUG="nolrz"
-          
-          VARIANT="${{ matrix.variant }}"
-          [[ "$VARIANT" == *"gmem"* ]] && TU_DEBUG="${TU_DEBUG:+$TU_DEBUG,}gmem"
-          [[ "$VARIANT" == *"sysmem"* ]] && TU_DEBUG="${TU_DEBUG:+$TU_DEBUG,}sysmem"
+          cp mesa/build/src/freedreno/vulkan/libvulkan_freedreno.so release/out/lib64/vulkan.ad07XX.so
           
           cat > release/out/meta.json << EOF
           {
             "schemaVersion": 1,
             "name": "Turnip v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}${{ matrix.suffix }}",
+            "description": "Adreno 7xx Vulkan Driver",
+            "author": "mesa",
             "packageVersion": "${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}",
-            "driverVersion": "${{ env.MESA_VERSION }}",
-            "vulkanVersion": "${{ env.VULKAN_VERSION }}",
+            "vendor": "Mesa",
+            "driverVersion": "${{ env.MESA_VERSION }}/vk${{ env.VULKAN_VERSION }}",
             "minApi": ${{ env.API_LEVEL }},
-            "libraryName": "vulkan.adreno.so",
-            "tuDebug": "$TU_DEBUG",
-            "baseCommit": "${{ env.MESA_COMMIT }}"
+            "libraryName": "vulkan.ad07XX.so"
           }
           EOF
           
@@ -225,17 +205,14 @@ jobs:
             | Info | Value |
             |------|-------|
             | Vulkan | ${{ env.VULKAN_VERSION }} |
-            | Base Commit | ${{ env.MESA_COMMIT }} |
+            | Mesa | ${{ env.MESA_COMMIT }} |
             | NDK | ${{ env.NDK_VERSION }} |
             | API Level | ${{ env.API_LEVEL }} |
-            | ABI | arm64-v8a |
-            | Architecture | ARMv9 |
             
             ---
             
             ### 📦 Supported GPUs
-            - **Adreno 7xx:** 725, 730, 740, 750
-            - **Adreno 8xx:** 825, 830, 840 (use a8xx variant)
+            **Adreno 7xx:** 725, 730, 740, 750
             
             ---
             
@@ -244,18 +221,9 @@ jobs:
             | File | Description |
             |------|-------------|
             | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}.zip` | Standard |
-            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Gmem.zip` | Gmem (Recommended for Winlator) |
-            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Sysmem.zip` | Sysmem mode |
-            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_a8xx.zip` | a8xx Experimental |
+            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Gmem.zip` | Gmem (Winlator) |
+            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Sysmem.zip` | Sysmem |
             | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Autotuner.zip` | Autotuner |
-            
-            ---
-            
-            ### ⚠️ Notes
-            - **a8xx:** Experimental - for Adreno 825/830/840
-            - **ONE UI bug:** Set `FD_DEV_FEATURES=enable_tp_ubwc_flag_hint=1`
-            - **LRZ issues:** Use `TU_DEBUG=nolrz`
-            - **Winlator:** Use Gmem variant or set `TU_DEBUG=gmem`
             
           files: |
             dist/*.zip
