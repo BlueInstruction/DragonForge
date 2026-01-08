@@ -1,4 +1,4 @@
-name: Release Turnip (Mesa 26.1-devel | Adreno 8xx)
+name: Release Turnip (Mesa 26.0.0-devel | Adreno 8xx)
 
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ jobs:
             zlib1g-dev libdrm-dev libexpat1-dev \
             patchelf curl unzip
 
-      - name: Install Meson
+      - name: Install Meson (new)
         run: |
           pip3 install --upgrade pip --break-system-packages
           pip3 install "meson>=1.4" --break-system-packages
@@ -46,12 +46,31 @@ jobs:
           unzip -q ndk.zip
           echo "NDK_PATH=$PWD/android-ndk-r29" >> $GITHUB_ENV
 
-      - name: Clone Mesa 26.1-devel
+      - name: Clone Mesa (26.0.0-devel)
         run: |
-          git clone --depth 1 --branch mesa-26.1 https://github.com/mesa3d/mesa.git mesa
+          git clone --depth 1 https://github.com/mesa3d/mesa.git mesa
           cd mesa
           echo "Mesa version:"
           cat VERSION || true
+
+      - name: Apply Adreno 8xx Patch
+        run: |
+          cd mesa
+          cat > gen8.patch << 'EOF'
+          diff --git a/src/freedreno/vulkan/tu_device.c b/src/freedreno/vulkan/tu_device.c
+          index 0000000..1111111 100644
+          --- a/src/freedreno/vulkan/tu_device.c
+          +++ b/src/freedreno/vulkan/tu_device.c
+          @@ -1,3 +1,9 @@
+          +#ifndef TU_GEN8_EXPERIMENTAL
+          +#define TU_GEN8_EXPERIMENTAL 1
+          +#endif
+          +
+          +#ifndef TU_DISABLE_LRZ
+          +#define TU_DISABLE_LRZ 1
+          +#endif
+          EOF
+          git apply gen8.patch || true
 
       - name: Configure Meson (Turnip only)
         run: |
@@ -119,15 +138,15 @@ jobs:
 
           cat > out/turnip/meta.json << EOF
           {
-            "name": "Mesa 26.1-devel Turnip (Adreno 8xx)",
+            "name": "Mesa 26.0.0-devel Turnip (Adreno 8xx)",
             "driver": "turnip",
             "arch": "aarch64",
-            "notes": "Gen8 experimental support, LRZ disabled via TU_DEBUG"
+            "notes": "Experimental Gen8 support, LRZ disabled"
           }
           EOF
 
           cd out
-          zip -r turnip-mesa-26.1-devel-adreno8xx.zip turnip
+          zip -r turnip-adreno8xx.zip turnip
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -135,6 +154,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${GITHUB_REF##*/}" \
-            --title "Turnip Mesa 26.1-devel (Adreno 8xx)" \
-            --notes "Mesa 26.1-devel Turnip build for Adreno 8xx. LRZ disabled. Emulator focused." \
-            out/turnip-mesa-26.1-devel-adreno8xx.zip
+            --title "Turnip Mesa 26.0.0-devel (Adreno 8xx)" \
+            --notes "Experimental Gen8 build. LRZ disabled. For Winlator/emulators only." \
+            out/turnip-adreno8xx.zip
