@@ -15,9 +15,6 @@ on:
           - sysmem
           - a8xx
           - autotuner
-          - regular-v8
-          - gmem-v8
-          - sysmem-v8
       enable_lrz:
         description: 'Enable LRZ'
         required: false
@@ -32,7 +29,7 @@ env:
   MESA_VERSION: "26.0.0"
   BUILD_TAG: "devel8"
   NDK_VERSION: "r29"
-  API_LEVEL: "34"
+  API_LEVEL: "31"
   VULKAN_VERSION: "1.4.335"
 
 jobs:
@@ -41,55 +38,21 @@ jobs:
     strategy:
       matrix:
         include:
-          # ============================================
-          # ARMv9 variants (SD 8 Gen 1/2/3, SD 7+ Gen 2/3)
-          # Adreno 730, 740, 750, 710, 720
-          # ============================================
           - variant: regular
             suffix: ""
             c_args: ""
-            arch: "armv9-a+crypto"
-            cpu: "armv9-a"
           - variant: gmem
             suffix: "_Gmem"
             c_args: "-DTU_DEFAULT_GMEM=1"
-            arch: "armv9-a+crypto"
-            cpu: "armv9-a"
           - variant: sysmem
             suffix: "_Sysmem"
             c_args: "-DTU_DEFAULT_SYSMEM=1"
-            arch: "armv9-a+crypto"
-            cpu: "armv9-a"
           - variant: a8xx
             suffix: "_a8xx"
             c_args: "-DEXPERIMENTAL_A8XX=1"
-            arch: "armv9-a+crypto"
-            cpu: "armv9-a"
           - variant: autotuner
             suffix: "_Autotuner"
             c_args: ""
-            arch: "armv9-a+crypto"
-            cpu: "armv9-a"
-          
-          # ============================================
-          # ARMv8 variants (SD 695, SD 6 Gen 1, older)
-          # Adreno 619, 642L, 644, etc.
-          # ============================================
-          - variant: regular-v8
-            suffix: "_ARMv8"
-            c_args: ""
-            arch: "armv8.2-a+crypto"
-            cpu: "armv8.2-a"
-          - variant: gmem-v8
-            suffix: "_Gmem_ARMv8"
-            c_args: "-DTU_DEFAULT_GMEM=1"
-            arch: "armv8.2-a+crypto"
-            cpu: "armv8.2-a"
-          - variant: sysmem-v8
-            suffix: "_Sysmem_ARMv8"
-            c_args: "-DTU_DEFAULT_SYSMEM=1"
-            arch: "armv8.2-a+crypto"
-            cpu: "armv8.2-a"
 
     steps:
       - name: Check Build Selection
@@ -167,7 +130,7 @@ jobs:
           [host_machine]
           system = 'android'
           cpu_family = 'aarch64'
-          cpu = '${{ matrix.cpu }}'
+          cpu = 'armv9-a'
           endian = 'little'
           EOF
           
@@ -186,8 +149,8 @@ jobs:
             -Dopengl=false \
             -Degl=disabled \
             -Dshader-cache=disabled \
-            -Dc_args="-I$SYSROOT/usr/include -O3 -march=${{ matrix.arch }} -g0 ${{ matrix.c_args }}" \
-            -Dcpp_args="-I$SYSROOT/usr/include -O3 -march=${{ matrix.arch }} -g0 ${{ matrix.c_args }}" \
+            -Dc_args="-I$SYSROOT/usr/include -O3 -march=armv9-a+crypto -g0 ${{ matrix.c_args }}" \
+            -Dcpp_args="-I$SYSROOT/usr/include -O3 -march=armv9-a+crypto -g0 ${{ matrix.c_args }}" \
             -Dc_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -lz" \
             -Dcpp_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -lz"
 
@@ -211,15 +174,6 @@ jobs:
           [[ "$VARIANT" == *"gmem"* ]] && TU_DEBUG="${TU_DEBUG:+$TU_DEBUG,}gmem"
           [[ "$VARIANT" == *"sysmem"* ]] && TU_DEBUG="${TU_DEBUG:+$TU_DEBUG,}sysmem"
           
-          # Determine architecture label
-          if [[ "${{ matrix.arch }}" == *"armv9"* ]]; then
-            ARCH_LABEL="ARMv9"
-            SUPPORTED_DEVICES="SD 8 Gen 1/2/3, SD 7+ Gen 2/3 (Adreno 730/740/750/710/720)"
-          else
-            ARCH_LABEL="ARMv8"
-            SUPPORTED_DEVICES="SD 695, SD 6 Gen 1 (Adreno 619/642L/644)"
-          fi
-          
           cat > release/out/meta.json << EOF
           {
             "schemaVersion": 1,
@@ -230,10 +184,7 @@ jobs:
             "minApi": ${{ env.API_LEVEL }},
             "libraryName": "vulkan.adreno.so",
             "tuDebug": "$TU_DEBUG",
-            "baseCommit": "${{ env.MESA_COMMIT }}",
-            "architecture": "$ARCH_LABEL",
-            "march": "${{ matrix.arch }}",
-            "supportedDevices": "$SUPPORTED_DEVICES"
+            "baseCommit": "${{ env.MESA_COMMIT }}"
           }
           EOF
           
@@ -271,44 +222,40 @@ jobs:
           body: |
             ## Turnip v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}
             
-            - **Vulkan:** ${{ env.VULKAN_VERSION }}
-            - **Base Commit:** ${{ env.MESA_COMMIT }}
-            - **NDK:** ${{ env.NDK_VERSION }}
-            - **API Level:** ${{ env.API_LEVEL }}
+            | Info | Value |
+            |------|-------|
+            | Vulkan | ${{ env.VULKAN_VERSION }} |
+            | Base Commit | ${{ env.MESA_COMMIT }} |
+            | NDK | ${{ env.NDK_VERSION }} |
+            | API Level | ${{ env.API_LEVEL }} |
+            | ABI | arm64-v8a |
+            | Architecture | ARMv9 |
             
             ---
             
-            ### 📦 ARMv9 Builds (Recommended for newer devices)
-            **Supported:** SD 8 Gen 1/2/3, SD 7+ Gen 2/3
-            **Adreno:** 730, 740, 750, 710, 720
+            ### 📦 Supported GPUs
+            - **Adreno 7xx:** 725, 730, 740, 750
+            - **Adreno 8xx:** 825, 830, 840 (use a8xx variant)
+            
+            ---
+            
+            ### 📦 Variants
             
             | File | Description |
             |------|-------------|
             | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}.zip` | Standard |
-            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Gmem.zip` | Gmem (a710/720 Winlator) |
+            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Gmem.zip` | Gmem (Recommended for Winlator) |
             | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Sysmem.zip` | Sysmem mode |
-            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_a8xx.zip` | a8xx Experimental (a830/a840) |
+            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_a8xx.zip` | a8xx Experimental |
             | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Autotuner.zip` | Autotuner |
             
             ---
             
-            ### 📦 ARMv8 Builds (For older devices)
-            **Supported:** SD 695, SD 6 Gen 1, older chips
-            **Adreno:** 619, 642L, 644
-            
-            | File | Description |
-            |------|-------------|
-            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_ARMv8.zip` | Standard |
-            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Gmem_ARMv8.zip` | Gmem |
-            | `Turnip_v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}_Sysmem_ARMv8.zip` | Sysmem |
-            
-            ---
-            
             ### ⚠️ Notes
-            - **a8xx:** Experimental - use at your own risk!
+            - **a8xx:** Experimental - for Adreno 825/830/840
             - **ONE UI bug:** Set `FD_DEV_FEATURES=enable_tp_ubwc_flag_hint=1`
             - **LRZ issues:** Use `TU_DEBUG=nolrz`
-            - **a710/720 on Winlator:** Uncheck sysmem, check gmem in TU_DEBUG
+            - **Winlator:** Use Gmem variant or set `TU_DEBUG=gmem`
             
           files: |
             dist/*.zip
