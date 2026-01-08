@@ -117,49 +117,36 @@ jobs:
           echo "  Downloading A7xx Performance Patches"
           echo "=========================================="
           
-          # 1. Danil's a7xx basic support
-          echo "[1/5] Fetching Danil's a7xx patches..."
-          curl -sL -o danil-a7xx.patch \
-            "https://gitlab.freedesktop.org/Danil/mesa/-/compare/main...turnip/feature/a7xx-basic-support.patch" \
-            2>/dev/null || echo "⚠ Danil patches not available"
+          # 1. Clone droidvm patches
+          echo "[1/4] Cloning droidvm patches..."
+          git clone --depth 1 https://github.com/droidvm/mesa-freedreno-patchs.git droidvm 2>/dev/null || true
           
-          # 2. droidvm mesa-freedreno patches
-          echo "[2/5] Cloning droidvm patches..."
-          git clone --depth 1 https://github.com/droidvm/mesa-freedreno-patchs.git droidvm \
-            2>/dev/null || echo "⚠ droidvm patches not available"
-          
-          # 3. K11MCH1 patches (from releases description)
-          echo "[3/5] Fetching K11MCH1 patches..."
+          # 2. K11MCH1 patches
+          echo "[2/4] Fetching K11MCH1 patches..."
           curl -sL -o k11mch1-turnip.patch \
-            "https://raw.githubusercontent.com/K11MCH1/AdrenoToolsDrivers/main/patches/turnip-a7xx.patch" \
-            2>/dev/null || echo "⚠ K11MCH1 patches not available"
+            "https://raw.githubusercontent.com/K11MCH1/AdrenoToolsDrivers/main/patches/turnip-a7xx.patch" 2>/dev/null || true
           
-          # 4. Mesa MRs for a7xx (example MRs - update with real ones)
-          echo "[4/5] Fetching Mesa GitLab MRs..."
-          # Autotuner improvements
+          # 3. Mesa MRs for a7xx
+          echo "[3/4] Fetching Mesa GitLab MRs..."
           curl -sL -o mr-autotuner.patch \
-            "https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/32652.patch" \
-            2>/dev/null || echo "⚠ Autotuner MR not available"
-          
-          # a7xx gmem fixes
+            "https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/32652.patch" 2>/dev/null || true
           curl -sL -o mr-gmem-fix.patch \
-            "https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/32128.patch" \
-            2>/dev/null || echo "⚠ GMEM fix MR not available"
+            "https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/32128.patch" 2>/dev/null || true
           
-          # 5. airidosas252 Turnip builds patches
-          echo "[5/5] Fetching airidosas252 patches..."
-          git clone --depth 1 https://github.com/airidosas252/Turnip-builds-for-Adreno-7xx.git airidosas \
-            2>/dev/null || echo "⚠ airidosas252 patches not available"
+          # 4. airidosas252 patches
+          echo "[4/4] Fetching airidosas252 patches..."
+          git clone --depth 1 https://github.com/airidosas252/Turnip-builds-for-Adreno-7xx.git airidosas 2>/dev/null || true
           
           echo ""
           echo "=========================================="
           echo "  Downloaded Patches:"
           echo "=========================================="
-          find . -name "*.patch" -type f 2>/dev/null | head -20
+          find . -name "*.patch" -type f 2>/dev/null || true
           echo "=========================================="
 
       - name: Apply Patches
         if: steps.check.outputs.run == 'true' && github.event.inputs.apply_patches == 'true'
+        continue-on-error: true
         run: |
           cd mesa
           
@@ -175,44 +162,65 @@ jobs:
             local patch="$1"
             local name=$(basename "$patch")
             
-            if [ ! -f "$patch" ]; then
+            if [ ! -f "$patch" ] || [ ! -s "$patch" ]; then
               return
             fi
             
-            # Check if patch is valid and applicable
-            if git apply --check "$patch" 2>/dev/null; then
-              git apply "$patch"
-              echo "✓ Applied: $name"
-              ((APPLIED++))
-            else
-              # Try with 3-way merge
-              if git apply --check --3way "$patch" 2>/dev/null; then
-                git apply --3way "$patch"
-                echo "✓ Applied (3-way): $name"
-                ((APPLIED++))
-              else
-                echo "✗ Skipped: $name (incompatible)"
-                ((SKIPPED++))
-              fi
+            # Skip HTML error pages (failed downloads)
+            if head -1 "$patch" | grep -q "<!DOCTYPE\|<html\|404"; then
+              echo "✗ Skipped: $name (invalid file)"
+              return
             fi
+            
+            # Try normal apply
+            if git apply --check "$patch" 2>/dev/null; then
+              git apply "$patch" 2>/dev/null
+              echo "✓ Applied: $name"
+              APPLIED=$((APPLIED + 1))
+              return
+            fi
+            
+            # Try with 3-way merge
+            if git apply --check --3way "$patch" 2>/dev/null; then
+              git apply --3way "$patch" 2>/dev/null
+              echo "✓ Applied (3-way): $name"
+              APPLIED=$((APPLIED + 1))
+              return
+            fi
+            
+            # Try with reject (partial apply)
+            if git apply --reject --whitespace=fix "$patch" 2>/dev/null; then
+              echo "⚠ Partial: $name (check .rej files)"
+              APPLIED=$((APPLIED + 1))
+              return
+            fi
+            
+            echo "✗ Skipped: $name (incompatible with Mesa ${{ env.MESA_VERSION }})"
+            SKIPPED=$((SKIPPED + 1))
           }
           
-          # Apply main patches
+          # Apply main patches (root level)
           for patch in ../patches/*.patch; do
-            apply_patch "$patch"
+            [ -f "$patch" ] && apply_patch "$patch"
           done
           
-          # Apply droidvm patches
+          # Apply droidvm patches (try latest version folder first)
           if [ -d "../patches/droidvm" ]; then
-            for patch in ../patches/droidvm/*.patch; do
-              apply_patch "$patch"
-            done
+            # Find the most recent version folder
+            LATEST_DIR=$(ls -d ../patches/droidvm/freedreno-kgsl-patchs-for-* 2>/dev/null | sort -V | tail -1)
+            if [ -d "$LATEST_DIR" ]; then
+              echo ""
+              echo "Using droidvm patches from: $(basename $LATEST_DIR)"
+              for patch in "$LATEST_DIR"/*.patch; do
+                [ -f "$patch" ] && apply_patch "$patch"
+              done
+            fi
           fi
           
           # Apply airidosas patches
           if [ -d "../patches/airidosas/patches" ]; then
             for patch in ../patches/airidosas/patches/*.patch; do
-              apply_patch "$patch"
+              [ -f "$patch" ] && apply_patch "$patch"
             done
           fi
           
@@ -220,29 +228,31 @@ jobs:
           echo "=========================================="
           echo "  Summary: $APPLIED applied, $SKIPPED skipped"
           echo "=========================================="
+          echo ""
+          echo "Note: Skipped patches are likely already"
+          echo "included in Mesa ${{ env.MESA_VERSION }} or incompatible."
+          echo "=========================================="
 
-      - name: Apply Turnip Optimizations
-        if: steps.check.outputs.run == 'true'
+      - name: Fetch Latest A7xx Commits from Mesa Main
+        if: steps.check.outputs.run == 'true' && github.event.inputs.apply_patches == 'true'
+        continue-on-error: true
         run: |
           cd mesa
           
           echo "=========================================="
-          echo "  Applying Turnip Optimizations"
+          echo "  Checking for A7xx commits in Mesa main"
           echo "=========================================="
           
-          # Optimization 1: Increase bin size for better GMEM usage on a750
-          if grep -q "BIN_SIZE" src/freedreno/vulkan/tu_cmd_buffer.c 2>/dev/null; then
-            echo "✓ Found BIN_SIZE configuration"
-          fi
+          # Add mesa main remote
+          git remote add mesa-main https://gitlab.freedesktop.org/mesa/mesa.git 2>/dev/null || true
+          git fetch mesa-main main --depth=100 2>/dev/null || true
           
-          # Optimization 2: Check for a7xx specific paths
-          echo "Checking a7xx support in source..."
-          grep -r "a7xx\|A7XX\|730\|740\|750" src/freedreno/vulkan/*.c 2>/dev/null | head -5 || true
+          # Find recent a7xx related commits
+          echo "Recent a7xx commits in Mesa main:"
+          git log mesa-main/main --oneline --grep="a7xx\|a750\|turnip" -10 2>/dev/null || true
           
-          # Optimization 3: List Turnip source files
-          echo ""
-          echo "Turnip source files:"
-          ls -la src/freedreno/vulkan/*.c 2>/dev/null | head -10
+          # Cherry-pick specific performance commits (if any)
+          # git cherry-pick <commit-hash> --no-commit 2>/dev/null || true
 
       - name: Configure
         if: steps.check.outputs.run == 'true'
@@ -300,17 +310,11 @@ jobs:
           mkdir -p release/out/lib64
           cp mesa/build/src/freedreno/vulkan/libvulkan_freedreno.so release/out/lib64/vulkan.ad07XX.so
           
-          # Check which patches were applied
-          PATCHES_APPLIED="none"
-          if [ -d "patches" ]; then
-            PATCHES_APPLIED=$(find patches -name "*.patch" -type f 2>/dev/null | wc -l)
-          fi
-          
           cat > release/out/meta.json << EOF
           {
             "schemaVersion": 1,
             "name": "Turnip v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}${{ matrix.suffix }}",
-            "description": "Adreno 7xx Vulkan Driver (Optimized with $PATCHES_APPLIED patches)",
+            "description": "Adreno 7xx Vulkan Driver (Optimized)",
             "author": "mesa",
             "packageVersion": "${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}",
             "vendor": "Mesa",
@@ -353,7 +357,7 @@ jobs:
           name: "Turnip v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}"
           body: |
             ## Turnip v${{ env.MESA_VERSION }}-${{ env.BUILD_TAG }}
-            ### 🚀 Optimized for Adreno 7xx (725/730/740/750)
+            ### 🚀 Optimized for Adreno 7xx
             
             | Info | Value |
             |------|-------|
@@ -362,41 +366,25 @@ jobs:
             | NDK | ${{ env.NDK_VERSION }} |
             | API Level | ${{ env.API_LEVEL }} |
             | LTO | ✓ Enabled |
-            | Fast Math | ✓ Enabled |
             
             ---
             
-            ### 📦 Patches Applied
-            - Danil's a7xx basic support
-            - droidvm mesa-freedreno patches
-            - K11MCH1 Turnip patches
-            - Mesa GitLab MRs (Autotuner, GMEM fixes)
-            - airidosas252 optimizations
-            
-            ---
+            ### 📦 Supported GPUs
+            **Adreno 7xx:** 725, 730, 740, 750
             
             ### 📦 Variants
+            | Variant | Use Case |
+            |---------|----------|
+            | Regular | Default |
+            | **Gmem** | ⭐ Winlator (Recommended) |
+            | Sysmem | Compatibility |
+            | Autotuner | Auto selection |
             
-            | File | Description |
-            |------|-------------|
-            | `Regular` | Standard build |
-            | `Gmem` | **⭐ Recommended for Winlator** |
-            | `Sysmem` | For specific compatibility |
-            | `Autotuner` | Auto gmem/sysmem selection |
-            
-            ---
-            
-            ### ⚙️ Winlator Settings (Recommended)
+            ### ⚙️ Winlator Settings
             ```
-            TU_DEBUG=gmem,noubwc
+            TU_DEBUG=gmem
             MESA_VK_WSI_PRESENT_MODE=mailbox
-            FD_DEV_FEATURES=enable_tp_ubwc_flag_hint=1
             ```
-            
-            ### ⚠️ Troubleshooting
-            - **Black screen:** Try `TU_DEBUG=sysmem`
-            - **Crashes:** Try `TU_DEBUG=nolrz`
-            - **Low FPS:** Use Gmem variant + `TU_DEBUG=gmem`
             
           files: |
             dist/*.zip
