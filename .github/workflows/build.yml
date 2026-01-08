@@ -32,7 +32,7 @@ permissions:
   contents: write
 
 env:
-  # أحدث Mesa commit (يناير 2026)
+  # أMesa commit
   MESA_COMMIT: "main"
   MESA_VERSION: "26.0.0"
   BUILD_TAG: "devel9"
@@ -41,7 +41,7 @@ env:
   VULKAN_VERSION: "1.4.335"
 
 jobs:
-  # Job للحصول على أحدث commit
+  # Job commit
   get-mesa-info:
     runs-on: ubuntu-24.04
     outputs:
@@ -106,7 +106,7 @@ jobs:
             tu_debug: ""
             description: "Auto GMEM/Sysmem selection"
           
-          # === NoLRZ Variants (لحل مشاكل الرسومات) ===
+          # === NoLRZ Variants ===
           - variant: nolrz
             suffix: "_NoLRZ"
             c_args: "-DTU_DISABLE_LRZ=1"
@@ -119,7 +119,7 @@ jobs:
             tu_debug: "nolrz,gmem"
             description: "NoLRZ + GMEM (best compatibility)"
           
-          # === Performance Variant (أقصى أداء) ===
+          # === Performance Variant ===
           - variant: performance
             suffix: "_Performance"
             c_args: "-DTU_DEFAULT_GMEM=1 -DTU_AGGRESSIVE_PREFETCH=1 -DNDEBUG"
