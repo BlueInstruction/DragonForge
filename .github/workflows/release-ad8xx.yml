@@ -537,9 +537,6 @@ jobs:
             "driverVersion": "${{ env.MESA_VERSION }}/vk${{ needs.get-mesa-info.outputs.vulkan_version }}",
             "minApi": ${{ env.API_LEVEL }},
             "libraryName": "vulkan.ad08xx.so",
-            "commit": "$ACTUAL_COMMIT",
-            "commitDate": "$COMMIT_DATE",
-            "tuDebug": "${{ matrix.tu_debug }}",
             "targetGPU": "Adreno 8xx",
             "perfLevel": "${{ matrix.perf_level }}",
           }
