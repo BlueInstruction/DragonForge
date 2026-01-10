@@ -83,8 +83,7 @@ jobs:
           ar = ['llvm-ar']
           strip = ['llvm-strip']
           ld = ['lld']
-          pkgconfig = ['pkg-config']
-          cmake = ['false']
+          pkg-config = ['pkg-config']
           [host_machine]
           system = 'android'
           cpu_family = 'aarch64'
@@ -95,7 +94,7 @@ jobs:
           export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           
-          PERF_FLAGS="-O3 -flto=full -ffast-math -fno-signed-zeros -fno-trapping-math -fomit-frame-pointer -funroll-loops -ftree-vectorize -fno-stack-protector -march=armv8.5-a"
+          PERF_FLAGS="-O3 -flto=full -ffast-math -fno-signed-zeros -fno-trapping-math -fomit-frame-pointer -funroll-loops -ftree-vectorize -fno-stack-protector"
           
           C_ARGS="-DTU_DEBUG_DEFAULT=\"gmem,nolrz\" -DNDEBUG"
           
@@ -108,7 +107,30 @@ jobs:
             -Dbuildtype=release \
             -Dstrip=true \
             -Db_lto=true \
-            -Dglvnd=false \
+            -Dglvnd=disabled \
+            -Dgallium-drivers= \
+            -Dllvm=disabled \
+            -Dintel-rt=disabled \
+            -Dvideo-codecs= \
+            -Dgallium-va=disabled \
+            -Dgallium-vdpau=disabled \
+            -Dgallium-xa=disabled \
+            -Dgallium-nine=false \
+            -Dgallium-opencl=disabled \
+            -Dopencl-spirv=false \
+            -Dvulkan-layers= \
+            -Dshader-cache=disabled \
+            -Dopengl=false \
+            -Degl=disabled \
+            -Dgbm=disabled \
+            -Dgles1=disabled \
+            -Dgles2=disabled \
+            -Dglx=disabled \
+            -Dlibunwind=disabled \
+            -Dlmsensors=disabled \
+            -Dvalgrind=disabled \
+            -Dxlib-lease=disabled \
+            -Dzstd=disabled \
             -Dc_args="-I$SYSROOT/usr/include $PERF_FLAGS -g0 $C_ARGS" \
             -Dcpp_args="-I$SYSROOT/usr/include $PERF_FLAGS -g0 $C_ARGS" \
             -Dc_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -lz -flto=full" \
@@ -201,8 +223,7 @@ jobs:
           body: |
             ## Turnip Driver for Adreno 8xx (Gen8)
             
-            ### Build Info
-            | Item | Value |
+            | Info | Value |
             |------|-------|
             | Mesa Commit | `${{ needs.get-mesa-info.outputs.commit_sha }}` |
             | Commit Date | ${{ needs.get-mesa-info.outputs.commit_date }} |
