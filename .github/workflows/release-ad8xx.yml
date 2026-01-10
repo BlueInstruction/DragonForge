@@ -499,7 +499,7 @@ jobs:
             -Dfreedreno-kmds=kgsl \
             -Dbuildtype=release \
             -Dstrip=true \
-            -Dgallium-drivers=freedreno \
+            -Dgallium-drivers= \
             -Dopengl=false \
             -Degl=disabled \
             -Dshader-cache=disabled \
