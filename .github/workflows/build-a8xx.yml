@@ -230,9 +230,9 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ env.MESA_VERSION }}-${{ github.run_id }}
-          name: "Turnip v${{ env.MESA_VERSION }} - Adreno 8xx Performance"
+          name: "Turnip v${{ env.MESA_VERSION }} - Adreno 8xx"
           body: |
-            ## Turnip Driver for Adreno 8xx (Gen8) - Performance Build
+            ## Turnip Driver for Adreno 8xx (Gen8)
             
             ### Build Info
             | Info | Value |
@@ -244,13 +244,6 @@ jobs:
             | API Level | ${{ env.API_LEVEL }} |
             | Branch | robclark/tu-gen8 |
             | Build Date | ${{ needs.build-turnip.outputs.build_date }} |
-            
-            ### Recommended Settings
-            ```
-            TU_DEBUG=gmem,nolrz
-            ```
-            TU_DEBUG=sysmem,nolrz
-            ```
             
           files: |
             dist/*.zip
