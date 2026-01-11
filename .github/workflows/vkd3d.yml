@@ -1,0 +1,158 @@
+name: Build VKD3D-Proton
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  get-vkd3d-info:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.info.outputs.version }}
+      commit_sha: ${{ steps.info.outputs.sha }}
+      commit_date: ${{ steps.info.outputs.date }}
+    steps:
+      - name: Get VKD3D-Proton Info
+        id: info
+        run: |
+          git clone --depth 1 https://github.com/HansKristian-Work/vkd3d-proton.git
+          cd vkd3d-proton
+          
+          VERSION=$(cat VERSION 2>/dev/null || echo "3.0")
+          SHA=$(git rev-parse --short HEAD)
+          DATE=$(git log -1 --format=%cd --date=short)
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+
+  build-vkd3d:
+    needs: get-vkd3d-info
+    runs-on: ubuntu-24.04
+    outputs:
+      build_date: ${{ steps.set-date.outputs.build_date }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Build Date
+        id: set-date
+        run: echo "build_date=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64 g++-mingw-w64 \
+            meson ninja-build glslang-tools wine64 wine32 \
+            curl unzip zip git ccache
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: vkd3d-${{ github.run_id }}
+          max-size: 1G
+
+      - name: Clone VKD3D-Proton
+        run: |
+          git clone --recursive https://github.com/HansKristian-Work/vkd3d-proton.git
+          cd vkd3d-proton
+          echo "VKD3D_VERSION=$(cat VERSION 2>/dev/null || echo '3.0')" >> $GITHUB_ENV
+          echo "VKD3D_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          cd vkd3d-proton
+          ./package-release.sh master build --no-package
+
+      - name: Package for Winlator
+        id: package
+        run: |
+          cd vkd3d-proton
+          
+          BUILD_DIR=$(find build -maxdepth 1 -type d -name "vkd3d-proton-*" | head -1)
+          
+          mkdir -p winlator_package
+          
+          mv "$BUILD_DIR/x64" winlator_package/system32
+          mv "$BUILD_DIR/x86" winlator_package/syswow64
+          
+          VERSION_CODE="$((RANDOM % 3))"
+          
+          cat > winlator_package/profile.json << EOF
+          {
+            "type": "VKD3D",
+            "versionName": "${VKD3D_VERSION}-${VKD3D_SHA}",
+            "versionCode": ${VERSION_CODE},
+            "description": "vkd3d-proton",
+            "files": [
+              {
+                "source": "system32/d3d12.dll",
+                "target": "\${system32}/d3d12.dll"
+              },
+              {
+                "source": "system32/d3d12core.dll",
+                "target": "\${system32}/d3d12core.dll"
+              },
+              {
+                "source": "syswow64/d3d12.dll",
+                "target": "\${syswow64}/d3d12.dll"
+              },
+              {
+                "source": "syswow64/d3d12core.dll",
+                "target": "\${syswow64}/d3d12core.dll"
+              }
+            ]
+          }
+          EOF
+          
+          ARCHIVE_NAME="vkd3d-proton-${VKD3D_VERSION}-${VKD3D_SHA}.wcp"
+          
+          cd winlator_package
+          zip -9 -r "../../$ARCHIVE_NAME" .
+          
+          echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vkd3d-proton-${{ github.run_id }}
+          path: "*.wcp"
+          retention-days: 5
+
+  release:
+    needs: [get-vkd3d-info, build-vkd3d]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vkd3d-proton-${{ github.run_id }}
+          path: dist
+
+      - name: Generate Checksum
+        run: |
+          cd dist
+          sha256sum *.wcp > SHA256SUMS.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: vkd3d-${{ needs.get-vkd3d-info.outputs.version }}-${{ github.run_id }}
+          name: "VKD3D-Proton ${{ needs.get-vkd3d-info.outputs.version }}"
+          body: |
+            ## Build Info
+            | Info | Value |
+            |------|-------|
+            | Version | ${{ needs.get-vkd3d-info.outputs.version }} |
+            | Commit | `${{ needs.get-vkd3d-info.outputs.commit_sha }}` |
+            | Commit Date | ${{ needs.get-vkd3d-info.outputs.commit_date }} |
+            | Build Date | ${{ needs.build-vkd3d.outputs.build_date }} |
+            
+          files: |
+            dist/*.wcp
+            dist/SHA256SUMS.txt
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
