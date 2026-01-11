@@ -56,8 +56,19 @@ jobs:
           sudo apt-get install -y ninja-build python3-pip python3-mako \
             flex bison patchelf curl unzip clang lld llvm cmake pkg-config \
             glslang-tools libglvnd-dev spirv-tools spirv-headers \
-            libspirvtools-dev
+            libspirv-cross-c-shared-dev
           pip install meson mako
+
+      - name: Build SPIRV-Tools from source
+        run: |
+          git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Tools.git
+          cd SPIRV-Tools
+          git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers.git external/spirv-headers
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
 
       - name: Setup NDK
         run: |
@@ -93,6 +104,7 @@ jobs:
           EOF
           
           export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
           SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           
           PERF_FLAGS="-O3 -flto=full -fomit-frame-pointer -funroll-loops -ftree-vectorize -fno-stack-protector"
@@ -122,10 +134,10 @@ jobs:
             -Dvalgrind=disabled \
             -Dzstd=disabled \
             -Dtools= \
-            -Dc_args="-I$SYSROOT/usr/include $PERF_FLAGS -g0 $C_ARGS" \
-            -Dcpp_args="-I$SYSROOT/usr/include $PERF_FLAGS -g0 $C_ARGS" \
-            -Dc_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -lz -flto=full" \
-            -Dcpp_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -lz -flto=full"
+            -Dc_args="-I$SYSROOT/usr/include -I/usr/local/include $PERF_FLAGS -g0 $C_ARGS" \
+            -Dcpp_args="-I$SYSROOT/usr/include -I/usr/local/include $PERF_FLAGS -g0 $C_ARGS" \
+            -Dc_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -L/usr/local/lib -lz -flto=full" \
+            -Dcpp_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -L/usr/local/lib -lz -flto=full"
 
       - name: Build
         run: |
