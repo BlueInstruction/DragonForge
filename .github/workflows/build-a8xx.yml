@@ -55,7 +55,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build python3-pip python3-mako \
             flex bison patchelf curl unzip clang lld llvm cmake pkg-config \
-            glslang-tools libglvnd-dev libspirv-dev spirv-tools libspirv-headers-dev
+            glslang-tools libglvnd-dev spirv-tools spirv-headers \
+            libspirvtools-dev
           pip install meson mako
 
       - name: Setup NDK
