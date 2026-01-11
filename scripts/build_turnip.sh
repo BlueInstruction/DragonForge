@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-# Configuration
 MESA_VERSION="mesa-25.3.3"
 MESA_URL="https://gitlab.freedesktop.org/mesa/mesa.git"
 BUILD_DIR="build-android"
@@ -16,7 +15,7 @@ echo ">>> [2/6] Cloning Mesa ($MESA_VERSION)..."
 git clone --depth 1 --branch "$MESA_VERSION" "$MESA_URL" mesa
 
 echo ">>> [3/6] Generating and Applying Patch..."
-# We create the patch with the standard a/ and b/ prefixes for git compatibility
+# create the patch with the standard a/ and b/ prefixes for git compatibility
 cat << 'EOF' > mesa_patch.diff
 --- a/src/freedreno/vulkan/tu_device.c
 +++ b/src/freedreno/vulkan/tu_device.c
@@ -70,9 +69,9 @@ meson setup "$BUILD_DIR" \
     -Dvulkan-drivers=freedreno \
     -Dfreedreno-kmds=kgsl \
     -Db_lto=true \
-    -Doptimization=3 \
+    -Doptimization= \
     -Dstrip=true \
-    -Dllvm=disabled
+    -Dllvm=disabled \
 
 echo ">>> [5/6] Compiling..."
 ninja -C "$BUILD_DIR"
@@ -83,12 +82,12 @@ cp "$BUILD_DIR/src/freedreno/vulkan/libvulkan_freedreno.so" ../"$OUTPUT_DIR"/vul
 cd ../"$OUTPUT_DIR"
 cat <<EOF > meta.json
 {
-  "name": "Turnip v25.3.3 - Adreno 750 Secret Recipe",
+  "name": "Turnip v25.3.3 - Adreno Secret Recipe",
   "version": "25.3.3",
-  "description": "Optimized A750. UBWC Hint + 1GB Shader Cache + Aarch64 LTO.",
+  "description": "UBWC Hint + LTO.",
   "library": "vulkan.ad07xx.so"
 }
 EOF
 
-zip -r turnip_adreno750_optimized.zip vulkan.ad07xx.so meta.json
+zip -r turnip_adreno.zip vulkan.ad07xx.so meta.json
 echo ">>> Build Complete."
