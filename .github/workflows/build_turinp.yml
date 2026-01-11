@@ -1,11 +1,11 @@
-name: Build Turnip Adreno 750 Optimized
+name: Build Turnip Adreno
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -24,12 +24,11 @@ jobs:
 
       - name: Build Turnip Driver
         run: |
-          # Use the .sh version found in your repo
-          chmod +x scripts/build_turnip.sh
-          ./scripts/build_turnip.sh
+           chmod +x scripts/build_turnip.sh
+           ./scripts/build_turnip.sh
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: turnip-adreno750-optimized
+          name: turnip-adreno
           path: build_output/*.zip
