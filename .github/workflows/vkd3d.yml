@@ -23,19 +23,23 @@ defaults:
 jobs:
   core_build:
     runs-on: ubuntu-latest
-    container: archlinux:latest
     timeout-minutes: 60
     steps:
-      - name: SYNC_DEPS
-        run: |
-          echo -e "[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm git meson ninja mingw-w64-gcc lib32-mingw-w64-gcc zip curl jq github-cli
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: SYNC_DEPS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git meson ninja-build zip curl jq gh python3-venv
+
+      - name: Setup llvm-mingw
+        run: |
+          curl -L -o llvm-mingw.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/20241217/llvm-mingw-20241217-ucrt-ubuntu-20.04-x86_64.tar.xz"
+          tar -xf llvm-mingw.tar.xz
+          echo "$PWD/llvm-mingw-20241217-ucrt-ubuntu-20.04-x86_64/bin" >> $GITHUB_PATH
 
       - name: FETCH_TAG
         id: info
