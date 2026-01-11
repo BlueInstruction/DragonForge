@@ -72,17 +72,32 @@ jobs:
           git fetch robclark tu/gen8 --depth 1
           git checkout FETCH_HEAD
 
-      - name: Patch Mesa to disable SPIRV-Tools requirement
+      - name: Patch Mesa to disable SPIRV-Tools
         run: |
           cd mesa
           
-          # Disable SPIRV-Tools in meson
-          sed -i "s/dep_spirv_tools = dependency('SPIRV-Tools'/dep_spirv_tools = dependency('SPIRV-Tools-disabled'/" meson.build || true
-          sed -i "s/with_spirv_tools = true/with_spirv_tools = false/" meson.build || true
+          # Replace vtn_debug.c with stub version
+          cat > src/compiler/spirv/vtn_debug.c << 'STUBEOF'
+          #include "vtn_private.h"
+          #include <stdio.h>
           
-          # Create empty stub for vtn_debug if needed
-          if grep -r "spirv-tools/libspirv.h" src/compiler/spirv/; then
-            sed -i 's|#include <spirv-tools/libspirv.h>|// SPIRV-Tools disabled\n#define SPV_SUCCESS 0\ntypedef void* spv_context;\ntypedef void* spv_diagnostic;|g' src/compiler/spirv/vtn_debug.c || true
+          void
+          vtn_print_spirv(struct vtn_builder *b, FILE *fp, const uint32_t *words,
+                          size_t word_count, spv_diagnostic *diagnostic)
+          {
+             fprintf(fp, "SPIRV-Tools not available - SPIRV disassembly disabled\n");
+             fprintf(fp, "SPIRV binary: %zu words\n", word_count);
+          }
+          STUBEOF
+          
+          # Also check if there's a header that needs the type
+          if grep -q "spv_diagnostic" src/compiler/spirv/vtn_private.h; then
+            sed -i 's/typedef struct spv_diagnostic_t\* spv_diagnostic;/typedef void* spv_diagnostic;/g' src/compiler/spirv/vtn_private.h || true
+          fi
+          
+          # Add typedef if not exists
+          if ! grep -q "typedef.*spv_diagnostic" src/compiler/spirv/vtn_private.h; then
+            sed -i '1i typedef void* spv_diagnostic;' src/compiler/spirv/vtn_debug.c
           fi
 
       - name: Configure Meson
