@@ -1,6 +1,0 @@
-build/
-*.zip
-*.so
-*.sha256
-android-ndk-*/
-mesa/
