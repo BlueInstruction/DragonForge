@@ -55,7 +55,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build python3-pip python3-mako \
             flex bison patchelf curl unzip clang lld llvm cmake pkg-config \
-            glslang-tools libglvnd-dev
+            glslang-tools libglvnd-dev libspirv-dev spirv-tools libspirv-headers-dev
           pip install meson mako
 
       - name: Setup NDK
@@ -94,9 +94,9 @@ jobs:
           export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           
-          PERF_FLAGS="-O3 -flto=full -ffast-math -fno-signed-zeros -fno-trapping-math -fomit-frame-pointer -funroll-loops -ftree-vectorize -fno-stack-protector"
+          PERF_FLAGS="-O3 -flto=full -fomit-frame-pointer -funroll-loops -ftree-vectorize -fno-stack-protector"
           
-          C_ARGS="-DTU_DEBUG_DEFAULT=\"gmem,nolrz\" -DNDEBUG"
+          C_ARGS="-DNDEBUG"
           
           meson setup build --cross-file cross.ini \
             -Dplatforms=android \
@@ -120,6 +120,7 @@ jobs:
             -Dlmsensors=disabled \
             -Dvalgrind=disabled \
             -Dzstd=disabled \
+            -Dtools= \
             -Dc_args="-I$SYSROOT/usr/include $PERF_FLAGS -g0 $C_ARGS" \
             -Dcpp_args="-I$SYSROOT/usr/include $PERF_FLAGS -g0 $C_ARGS" \
             -Dc_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -lz -flto=full" \
