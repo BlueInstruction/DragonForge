@@ -2,6 +2,11 @@ name: Build Turnip
 
 on:
   workflow_dispatch:
+    inputs:
+      FORCE_BUILD:
+        type: boolean
+        default: false
+        description: "Force rebuild even if release exists"
 
 permissions:
   contents: write
@@ -31,17 +36,25 @@ jobs:
           
           SHA=$(git rev-parse --short HEAD)
           DATE=$(git log -1 --format=%cd --date=short)
-          VK_VERSION=$(grep -oP "vk_api_version\s*=\s*'\K[^']+" meson.build 2>/dev/null || echo "1.4")
+          
+          # Extract Vulkan version correctly
+          VK_VERSION=$(grep -oP "VK_MAKE_API_VERSION\(0,\s*\K[0-9]+,\s*[0-9]+" src/vulkan/runtime/vk_instance.c 2>/dev/null | head -1 | tr -d ' ' | tr ',' '.' || echo "1.4")
           
           echo "sha=$SHA" >> $GITHUB_OUTPUT
           echo "date=$DATE" >> $GITHUB_OUTPUT
           echo "vulkan=$VK_VERSION" >> $GITHUB_OUTPUT
+          
+          echo "=== Mesa Info ==="
+          echo "Commit: $SHA"
+          echo "Date: $DATE"
+          echo "Vulkan: $VK_VERSION"
 
   build-turnip:
     needs: get-mesa-info
     runs-on: ubuntu-24.04
     outputs:
       build_date: ${{ steps.set-date.outputs.build_date }}
+      archive_name: ${{ steps.package.outputs.archive_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,16 +68,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build python3-pip python3-mako \
             flex bison patchelf curl unzip clang lld llvm cmake pkg-config \
-            glslang-tools libglvnd-dev
+            glslang-tools libglvnd-dev zstd
           pip install meson mako
 
-      - name: Setup NDK
+      - name: Cache NDK
+        uses: actions/cache@v4
+        id: cache-ndk
+        with:
+          path: android-ndk-${{ env.NDK_VERSION }}
+          key: ndk-${{ env.NDK_VERSION }}
+
+      - name: Download NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
         run: |
           curl -sL -o ndk.zip "https://dl.google.com/android/repository/android-ndk-${{ env.NDK_VERSION }}-linux.zip"
           unzip -q ndk.zip
-          echo "NDK=$(pwd)/android-ndk-${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+          rm -f ndk.zip
+
+      - name: Set NDK Path
+        run: echo "NDK=$(pwd)/android-ndk-${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+
+      - name: Cache SPIRV-Tools
+        uses: actions/cache@v4
+        id: cache-spirv
+        with:
+          path: ~/spirv-tools-android
+          key: spirv-tools-android-${{ env.NDK_VERSION }}-${{ env.API_LEVEL }}-v2
 
       - name: Build SPIRV-Tools for Android
+        if: steps.cache-spirv.outputs.cache-hit != 'true'
         run: |
           export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           
@@ -87,8 +119,9 @@ jobs:
           
           make -j$(nproc)
           make install
-          
-          echo "SPIRV_TOOLS_PATH=$HOME/spirv-tools-android" >> $GITHUB_ENV
+
+      - name: Set SPIRV Path
+        run: echo "SPIRV_TOOLS_PATH=$HOME/spirv-tools-android" >> $GITHUB_ENV
 
       - name: Clone Mesa
         run: |
@@ -97,35 +130,42 @@ jobs:
           git remote add robclark https://gitlab.freedesktop.org/robclark/mesa.git
           git fetch robclark tu/gen8 --depth 1
           git checkout FETCH_HEAD
+          
+          echo "=== Mesa Commit ==="
+          git log -1 --oneline
 
       - name: Configure Meson
         run: |
           cd mesa
           
+          SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          
           cat > cross.ini << EOF
           [binaries]
-          c = ['aarch64-linux-android${{ env.API_LEVEL }}-clang']
-          cpp = ['aarch64-linux-android${{ env.API_LEVEL }}-clang++']
-          ar = ['llvm-ar']
-          strip = ['llvm-strip']
-          ld = ['lld']
-          pkg-config = ['pkg-config']
+          c = 'aarch64-linux-android${{ env.API_LEVEL }}-clang'
+          cpp = 'aarch64-linux-android${{ env.API_LEVEL }}-clang++'
+          ar = 'llvm-ar'
+          strip = 'llvm-strip'
+          ld = 'lld'
+          pkg-config = 'pkg-config'
+
           [host_machine]
           system = 'android'
           cpu_family = 'aarch64'
           cpu = 'armv8'
           endian = 'little'
+
           [properties]
-          sys_root = '${{ env.NDK }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot'
+          sys_root = '$SYSROOT'
+
           [built-in options]
           pkg_config_path = ['${{ env.SPIRV_TOOLS_PATH }}/lib/pkgconfig']
           EOF
           
           export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           export PKG_CONFIG_PATH="$SPIRV_TOOLS_PATH/lib/pkgconfig:$PKG_CONFIG_PATH"
-          SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
           
-          # Aggressive performance flags (safe ones only)
+          # Performance flags
           PERF_FLAGS="-O3 -flto=full -fomit-frame-pointer -funroll-loops -ftree-vectorize -fno-stack-protector -fmerge-all-constants -fno-math-errno"
           
           meson setup build --cross-file cross.ini \
@@ -154,24 +194,42 @@ jobs:
             -Dtools= \
             -Dc_args="-I$SYSROOT/usr/include -I$SPIRV_TOOLS_PATH/include $PERF_FLAGS -g0 -DNDEBUG" \
             -Dcpp_args="-I$SYSROOT/usr/include -I$SPIRV_TOOLS_PATH/include $PERF_FLAGS -g0 -DNDEBUG" \
-            -Dc_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -L$SPIRV_TOOLS_PATH/lib -lz -flto=full -Wl,-O3 -Wl,--gc-sections" \
-            -Dcpp_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -L$SPIRV_TOOLS_PATH/lib -lz -flto=full -Wl,-O3 -Wl,--gc-sections"
+            -Dc_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -L$SPIRV_TOOLS_PATH/lib -lz -flto=full -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed" \
+            -Dcpp_link_args="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }} -L$SPIRV_TOOLS_PATH/lib -lz -flto=full -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed"
 
       - name: Build
         run: |
           export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
           ninja -C mesa/build src/freedreno/vulkan/libvulkan_freedreno.so
+          
+          echo "=== Build Complete ==="
 
-      - name: Check Library Size
+      - name: Verify and Strip Library
         run: |
           LIB_PATH="mesa/build/src/freedreno/vulkan/libvulkan_freedreno.so"
+          
+          if [[ ! -f "$LIB_PATH" ]]; then
+            echo "ERROR: Library not found!"
+            exit 1
+          fi
+          
           echo "=== Before Strip ==="
           ls -lh "$LIB_PATH"
+          file "$LIB_PATH"
           
           $NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded "$LIB_PATH"
           
           echo "=== After Strip ==="
           ls -lh "$LIB_PATH"
+          
+          # Verify it's a valid ARM64 library
+          file "$LIB_PATH" | grep -q "aarch64" || { echo "ERROR: Not an ARM64 library!"; exit 1; }
+          
+          # Check minimum size (should be at least 5MB)
+          SIZE=$(stat -c%s "$LIB_PATH")
+          if [[ $SIZE -lt 5000000 ]]; then
+            echo "WARNING: Library seems too small ($SIZE bytes)"
+          fi
 
       - name: Package
         id: package
@@ -191,25 +249,35 @@ jobs:
           {
             "schemaVersion": 1,
             "name": "$ARCHIVE_NAME",
-            "description": "Turnip Adreno 8xx",
+            "description": "Turnip Adreno 8xx (Gen8)",
             "author": "Mesa/Freedreno",
             "packageVersion": "${{ env.MESA_VERSION }}",
             "vendor": "Mesa",
             "driverVersion": "Vulkan ${{ needs.get-mesa-info.outputs.vulkan_version }}",
             "minApi": ${{ env.API_LEVEL }},
-            "libraryName": "vulkan.ad8xx.so"
+            "libraryName": "vulkan.ad8xx.so",
+            "commit": "$COMMIT_SHA",
+            "commitDate": "$COMMIT_DATE",
+            "branch": "robclark/tu-gen8"
           }
           EOF
           
+          echo "=== meta.json ==="
+          cat release/out/meta.json
+          
           cd release/out && zip -r "../$ARCHIVE_NAME" .
+          
           echo "archive_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+          
+          echo "=== Package Contents ==="
+          unzip -l "../$ARCHIVE_NAME"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: turnip-a8xx-${{ github.run_id }}
+          name: turnip-a8xx-${{ needs.get-mesa-info.outputs.commit_sha }}
           path: release/*.zip
-          retention-days: 5
+          retention-days: 7
 
   release:
     needs: [get-mesa-info, build-turnip]
@@ -218,32 +286,39 @@ jobs:
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
-          name: turnip-a8xx-${{ github.run_id }}
+          name: turnip-a8xx-${{ needs.get-mesa-info.outputs.commit_sha }}
           path: dist
 
       - name: Generate Checksum
         run: |
           cd dist
           sha256sum *.zip > SHA256SUMS.txt
+          echo "=== Checksums ==="
+          cat SHA256SUMS.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.MESA_VERSION }}-${{ github.run_id }}
-          name: "Turnip v${{ env.MESA_VERSION }} - Adreno 8xx"
+          tag_name: turnip-${{ env.MESA_VERSION }}-${{ needs.get-mesa-info.outputs.commit_sha }}
+          name: "Turnip v${{ env.MESA_VERSION }} - Adreno 8xx (${{ needs.get-mesa-info.outputs.commit_sha }})"
           body: |
-            ## Turnip Driver for Adreno 8xx (Gen8)
+            ## 🚀 Turnip Driver for Adreno 8xx (Gen8)
             
-            ### Build Info
+            ### 📋 Build Info
             | Info | Value |
             |------|-------|
+            | Mesa Version | `${{ env.MESA_VERSION }}` |
             | Mesa Commit | `${{ needs.get-mesa-info.outputs.commit_sha }}` |
             | Commit Date | ${{ needs.get-mesa-info.outputs.commit_date }} |
-            | Vulkan | ${{ needs.get-mesa-info.outputs.vulkan_version }} |
-            | NDK | ${{ env.NDK_VERSION }} |
+            | Vulkan Version | ${{ needs.get-mesa-info.outputs.vulkan_version }} |
+            | NDK Version | ${{ env.NDK_VERSION }} |
             | API Level | ${{ env.API_LEVEL }} |
-            | Branch | robclark/tu-gen8 |
+            | Branch | `robclark/tu-gen8` |
             | Build Date | ${{ needs.build-turnip.outputs.build_date }} |
+            
+            ### 🔗 Source
+            - [Mesa Repository](https://gitlab.freedesktop.org/mesa/mesa)
+            - [Rob Clark's Fork](https://gitlab.freedesktop.org/robclark/mesa/-/tree/tu/gen8)
             
           files: |
             dist/*.zip
