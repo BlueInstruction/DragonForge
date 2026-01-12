@@ -173,10 +173,3 @@ jobs:
             **Commit:** `${{ env.COMMIT }}`
             **Source:** [HansKristian-Work/vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton/releases/tag/${{ env.TAG }})
             
-            ### Architecture
-            - `system32/` - x64 DLLs
-            - `syswow64/` - x86 DLLs
-            
-            ### Files Included
-            - d3d12.dll (~100KB - wrapper)
-            - d3d12core.dll (~5MB - main library)
