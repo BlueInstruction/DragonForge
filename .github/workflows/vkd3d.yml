@@ -42,7 +42,7 @@ jobs:
         run: |
           set -e
           sudo apt-get update
-          sudo apt-get install -y git meson ninja-build zip curl jq gh python3-venv glslang-tools
+          sudo apt-get install -y git meson ninja-build curl jq gh python3-venv glslang-tools zstd
 
       - name: Setup llvm-mingw
         run: |
@@ -123,25 +123,16 @@ jobs:
           fi
           
           echo "=== DLL Sizes ==="
-          echo "x64/d3d12.dll: $(du -h "$SRC_PATH/x64/d3d12.dll" | cut -f1)"
-          echo "x64/d3d12core.dll: $(du -h "$SRC_PATH/x64/d3d12core.dll" | cut -f1)"
-          echo "x86/d3d12.dll: $(du -h "$SRC_PATH/x86/d3d12.dll" | cut -f1)"
-          echo "x86/d3d12core.dll: $(du -h "$SRC_PATH/x86/d3d12core.dll" | cut -f1)"
-          
           for arch in x64 x86; do
-            SIZE=$(stat -c%s "$SRC_PATH/$arch/d3d12core.dll")
-            MIN_SIZE=4000000
-            if [[ $SIZE -lt $MIN_SIZE ]]; then
-              echo "ERROR: $arch/d3d12core.dll is too small ($SIZE bytes)"
-              exit 1
-            fi
+            for dll in d3d12.dll d3d12core.dll; do
+              echo "$arch/$dll: $(du -h "$SRC_PATH/$arch/$dll" | cut -f1)"
+            done
           done
           
           for arch in x64 x86; do
-            SIZE=$(stat -c%s "$SRC_PATH/$arch/d3d12.dll")
-            MIN_SIZE=50000
-            if [[ $SIZE -lt $MIN_SIZE ]]; then
-              echo "ERROR: $arch/d3d12.dll is too small ($SIZE bytes)"
+            SIZE=$(stat -c%s "$SRC_PATH/$arch/d3d12core.dll")
+            if [[ $SIZE -lt 4000000 ]]; then
+              echo "ERROR: $arch/d3d12core.dll is too small ($SIZE bytes)"
               exit 1
             fi
           done
@@ -154,30 +145,60 @@ jobs:
           set -e
           mkdir -p staging/system32 staging/syswow64
           SRC_PATH=$(find out -maxdepth 1 -type d -name "vkd3d-proton-*")
+          
+          # Copy DLLs
           cp "$SRC_PATH/x64/"*.dll staging/system32/
           cp "$SRC_PATH/x86/"*.dll staging/syswow64/
           
-          cat > staging/profile.json << EOF
-          {
-            "type": "VKD3D",
-            "versionName": "${{ env.VER }}",
-            "versionCode": 0,
-            "description": "VKD3D-Proton ${{ env.VER }} (Upstream: Hans-Kristian Arntzen)",
-            "files": [
-              {"source": "system32/d3d12.dll", "target": "\${system32}"},
-              {"source": "system32/d3d12core.dll", "target": "\${system32}"},
-              {"source": "syswow64/d3d12.dll", "target": "\${syswow64}"},
-              {"source": "syswow64/d3d12core.dll", "target": "\${syswow64}"}
-            ]
-          }
-          EOF
+          # Strip symbols
+          if command -v llvm-strip &> /dev/null; then
+            find staging -iname '*.dll' -exec llvm-strip --strip-all {} \;
+          fi
+          
+          # Generate file lists
+          FILES_64=$(find staging/system32 -maxdepth 1 -type f -iname "*.dll" -printf '%f\n' | sort)
+          FILES_32=$(find staging/syswow64 -maxdepth 1 -type f -iname "*.dll" -printf '%f\n' | sort)
+          
+          # Build files array using jq
+          FILES_JSON=$(echo "$FILES_64" | jq -R -s 'split("\n") | map(select(length > 0)) | map({source: ("system32/" + .), target: ("${system32}/" + .)})' )
+          FILES_JSON=$(echo "$FILES_32" | jq -R -s --argjson existing "$FILES_JSON" 'split("\n") | map(select(length > 0)) | map({source: ("syswow64/" + .), target: ("${syswow64}/" + .)}) | $existing + .')
+          
+          # Create profile.json
+          jq -n \
+            --arg TYPE "VKD3D" \
+            --arg VER "${{ env.VER }}" \
+            --argjson VC 0 \
+            --arg DESC "VKD3D-Proton ${{ env.VER }} (Upstream: Hans-Kristian Arntzen)" \
+            --argjson FILES "$FILES_JSON" \
+            '{
+              type: $TYPE,
+              versionName: $VER,
+              versionCode: $VC,
+              description: $DESC,
+              files: $FILES
+            }' > staging/profile.json
+          
+          echo "=== profile.json ==="
+          cat staging/profile.json
 
       - name: PACK_WCP
         if: steps.check.outputs.SKIP_RUN == 'false'
         run: |
           set -e
-          cd staging && zip -r "../vkd3d-proton-${{ env.VER }}.wcp" ./*
+          cd staging
+          tar --zstd \
+            --format=gnu \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --sort=name \
+            -cf "../vkd3d-proton-${{ env.VER }}.wcp" \
+            profile.json system32 syswow64
+          
           echo "WCP_FILE=vkd3d-proton-${{ env.VER }}.wcp" >> $GITHUB_ENV
+          
+          echo "=== WCP Contents ==="
+          tar --zstd -tvf "../vkd3d-proton-${{ env.VER }}.wcp"
 
       - name: DEPLOY_RELEASE
         if: steps.check.outputs.SKIP_RUN == 'false'
@@ -189,5 +210,6 @@ jobs:
           body: |
             ## VKD3D-Proton ${{ env.VER }}
             
+            - Architecture: x64 (system32) + x86 (syswow64)
             - **Commit:** `${{ env.COMMIT }}`
             - **Source:** [HansKristian-Work/vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton/releases/tag/${{ env.TAG }})
