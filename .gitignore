@@ -1,15 +1,18 @@
-*.so
+# Build outputs
+forge_chamber/
 *.zip
-*.o
-*.a
-build/
-out/
-release/
-dist/
+*.so
+*.log
+
+# IDE
 .vscode/
 .idea/
 *.swp
+
+# OS
 .DS_Store
-__pycache__/
-*.pyc
-*.log
+Thumbs.db
+
+# Temp
+*.tmp
+*.bak
