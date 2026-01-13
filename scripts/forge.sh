@@ -261,7 +261,7 @@ create_cross_file() {
     local CROSS_FILE="$CHAMBER/cross_dragon"
     local NATIVE_FILE="$CHAMBER/native_dragon"
     
-    # Cross file (existing code)
+    # Cross file for Android target
     cat <<EOF > "$CROSS_FILE"
 [binaries]
 ar = '$NDK_BIN/llvm-ar'
@@ -286,6 +286,7 @@ EOF
 [binaries]
 c = ['ccache', 'clang']
 cpp = ['ccache', 'clang++']
+pkg-config = '/usr/bin/pkg-config'
 EOF
     
     info "Cross-compilation files created"
@@ -322,6 +323,7 @@ run_meson_setup() {
         -Dspirv-tools=disabled \
         -Dwerror=false \
         -Dvalgrind=disabled \
+        -Dbuild-tests=false \
         &> "$log_file"; then
         
         echo ""
