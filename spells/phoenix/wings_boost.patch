@@ -1,0 +1,11 @@
+diff --git a/src/freedreno/vulkan/tu_device.cc b/src/freedreno/vulkan/tu_device.cc
+--- a/src/freedreno/vulkan/tu_device.cc
++++ b/src/freedreno/vulkan/tu_device.cc
+@@ -222,7 +222,7 @@ get_device_extensions(const struct tu_physical_device *device,
+     .KHR_variable_pointers = true,
+     .KHR_vertex_attribute_divisor = true,
+     .KHR_vulkan_memory_model = true,
+-    .KHR_workgroup_memory_explicit_layout = true,
++    .KHR_workgroup_memory_explicit_layout = false,
+     .KHR_zero_initialize_workgroup_memory = true,
+     .EXT_4444_formats = true,
