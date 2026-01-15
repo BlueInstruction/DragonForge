@@ -44,14 +44,14 @@ jobs:
 
       - name: Summon Dragon
         run: |
-          chmod +x scripts/forge.sh
-          bash scripts/forge.sh ${{ github.event.inputs.variant || 'tiger' }} "${{ github.event.inputs.custom_commit }}"
+          chmod +x scripts/driver.sh
+          bash scripts/driver.sh ${{ github.event.inputs.variant || 'tiger' }} "${{ github.event.inputs.custom_commit }}"
 
       - name: Gather Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dragon-${{ github.event.inputs.variant || 'tiger' }}-${{ github.run_number }}
-          path: forge_chamber/*.zip
+          path: driver_chamber/*.zip
           retention-days: 30
 
       - name: Prepare Release
@@ -69,6 +69,6 @@ jobs:
             ## Dragon Driver Build
             - Variant: `${{ github.event.inputs.variant || 'tiger' }}`
             - Date: ${{ steps.info.outputs.date }}
-          files: forge_chamber/*.zip
+          files: driver_chamber/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
