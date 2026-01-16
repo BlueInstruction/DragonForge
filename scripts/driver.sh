@@ -426,6 +426,7 @@ build_falcon() {
     spell_tiger_velocity
     apply_spell_file "falcon/a6xx_fix"
     apply_spell_file "falcon/fix_vb_size"
+    apply_spell_file "falcon/a750_cse_fix"
     driver_dragon "Falcon"
 }
 
