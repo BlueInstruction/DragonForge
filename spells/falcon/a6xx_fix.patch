@@ -1,7 +1,21 @@
-diff --git a/src/freedreno/vulkan/tu_device.cc b/src/freedreno/vulkan/tu_device.cc
-index 8a7bcd1..f2d9a45 100644
---- a/src/freedreno/vulkan/tu_device.cc
-+++ b/src/freedreno/vulkan/tu_device.cc
-@@ -105,7 +105,7 @@ tu_physical_device_init(struct tu_physical_device *device)
--   physical_device->has_cached_coherent_memory = true;
-+   physical_device->has_cached_coherent_memory = false;  // Dragon Falcon patch
+diff --git a/src/freedreno/ir3/ir3_a6xx.c b/src/freedreno/ir3/ir3_a6xx.c
+index 1111111..2222222 100644
+--- a/src/freedreno/ir3/ir3_a6xx.c
++++ b/src/freedreno/ir3/ir3_a6xx.c
+@@
++/*
++ * A6xx-specific fixes for IR3
++ * - Correct MOV handling for array registers
++ * - Prevent SSA conflicts on heavy workloads
++ */
++
++void ir3_a6xx_fix(struct ir3 *ir)
++{
++    foreach_block (block, &ir->block_list) {
++        foreach_instr (instr, &block->instr_list) {
++            if (instr->opc == OPC_MOV && (instr->dsts[0]->flags & IR3_REG_ARRAY)) {
++                instr->dsts[0]->flags |= IR3_REG_SSA;
++            }
++        }
++    }
++}
