@@ -1,0 +1,64 @@
+diff --git a/src/freedreno/ir3/ir3_cse.c b/src/freedreno/ir3/ir3_cse.c
+index 1234567..789abcd 100644
+--- a/src/freedreno/ir3/ir3_cse.c
++++ b/src/freedreno/ir3/ir3_cse.c
+@@ -XXX,XX +XXX,XX @@
++static bool
++instr_can_cse_a750(const struct ir3_instruction *instr)
++{
++    if (!instr || !instr->dsts[0])
++        return false;
++
++    if (!is_dest_gpr(instr->dsts[0]))
++        return false;
++
++    if ((instr->dsts[0]->flags & IR3_REG_ARRAY) &&
++        !(instr->dsts[0]->flags & IR3_REG_SSA))
++        return false;
++
++    switch (instr->opc) {
++    case OPC_MOV:
++    case OPC_META_COLLECT:
++    case OPC_MAD_F32:
++    case OPC_ADD_F32:
++    case OPC_MUL_F32:
++    case OPC_MAX_F32:
++    case OPC_MIN_F32:
++        return true;
++    default:
++        return false;
++    }
++}
++
++bool ir3_cse_a750(struct ir3 *ir)
++{
++    struct set *instr_set = _mesa_set_create(NULL, hash_instr, cmp_func);
++    foreach_block(block, &ir->block_list) {
++        _mesa_set_clear(instr_set, NULL);
++        foreach_instr(instr, &block->instr_list) {
++            instr->data = NULL;
++            if (!instr_can_cse_a750(instr))
++                continue;
++            bool found;
++            struct set_entry *entry = _mesa_set_search_or_add(instr_set, instr, &found);
++            if (found)
++                instr->data = (void *)entry->key;
++        }
++    }
++
++    bool progress = false;
++    foreach_block(block, &ir->block_list) {
++        foreach_instr(instr, &block->instr_list) {
++            foreach_src(src, instr) {
++                if ((src->flags & IR3_REG_SSA) && src->def && src->def->instr->data) {
++                    progress = true;
++                    struct ir3_instruction *d_instr = src->def->instr->data;
++                    src->def = d_instr->dsts[0];
++                }
++            }
++        }
++    }
++
++    _mesa_set_destroy(instr_set, NULL);
++    return progress;
++}
