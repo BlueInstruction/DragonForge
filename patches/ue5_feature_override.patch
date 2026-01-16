@@ -1,0 +1,42 @@
+diff --git a/libs/vkd3d/device.c b/libs/vkd3d/device.c
+index 1234567..abcdefg 100644
+--- a/libs/vkd3d/device.c
++++ b/libs/vkd3d/device.c
+@@ -1,3 +1,6 @@
++/* UE5.5 Feature Override Patch */
++#define VKD3D_UE5_COMPAT 1
++
+ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *iface,
+         D3D12_FEATURE feature, void *feature_data, UINT feature_data_size)
+ {
+@@ -100,6 +103,15 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
+         case D3D12_FEATURE_D3D12_OPTIONS7:
+         {
+             D3D12_FEATURE_DATA_D3D12_OPTIONS7 *data = feature_data;
++#ifdef VKD3D_UE5_COMPAT
++            /* Force WaveOps and MeshShader support for UE5.5 compatibility */
++            if (data)
++            {
++                data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;
++                data->SamplerFeedbackTier = D3D12_SAMPLER_FEEDBACK_TIER_NOT_SUPPORTED;
++            }
++            return S_OK;
++#endif
+             /* Original code continues below */
+         }
+ 
+@@ -110,6 +122,14 @@ static HRESULT STDMETHODCALLTYPE d3d12_device_CheckFeatureSupport(ID3D12Device *
+         case D3D12_FEATURE_SHADER_MODEL:
+         {
+             D3D12_FEATURE_DATA_SHADER_MODEL *data = feature_data;
++#ifdef VKD3D_UE5_COMPAT
++            /* Force Shader Model 6.6 for UE5.5 compatibility */
++            if (data && data->HighestShaderModel < D3D_SHADER_MODEL_6_6)
++            {
++                data->HighestShaderModel = D3D_SHADER_MODEL_6_6;
++            }
++            return S_OK;
++#endif
+             /* Original code continues below */
+         }
+ }
