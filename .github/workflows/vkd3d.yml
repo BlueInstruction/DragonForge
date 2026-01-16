@@ -113,22 +113,108 @@ jobs:
             exit 1
           fi
           
+          # Create patch file
+          cat > /tmp/ue5_patch.c << 'PATCH_EOF'
+          /* UE5 Compatibility - Insert after original assignments */
+          
+          /* For D3D12_FEATURE_D3D12_OPTIONS1 - Force WaveOps */
+          #define UE5_FORCE_WAVEOPS() do { \
+              data->WaveOps = TRUE; \
+              if (data->WaveLaneCountMin < 32) data->WaveLaneCountMin = 32; \
+              if (data->WaveLaneCountMax < 64) data->WaveLaneCountMax = 64; \
+          } while(0)
+          
+          /* For D3D12_FEATURE_SHADER_MODEL - Force SM 6.6 */
+          #define UE5_FORCE_SHADER_MODEL() do { \
+              if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6) \
+                  data->HighestShaderModel = D3D_SHADER_MODEL_6_6; \
+          } while(0)
+          
+          /* For D3D12_FEATURE_D3D12_OPTIONS7 - Force MeshShader */
+          #define UE5_FORCE_MESHSHADER() do { \
+              if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1) \
+                  data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1; \
+          } while(0)
+          PATCH_EOF
+          
+          # Add header comment
           sed -i '1i\/* UE5.5 Compatibility Patch - Force WaveOps, ShaderModel 6.6, MeshShader */' "$DEVICE_FILE"
           
-          sed -i '/case D3D12_FEATURE_D3D12_OPTIONS1:/,/return S_OK;/{
-            /data->WaveOps = /a\            /* UE5 Force WaveOps */\n            data->WaveOps = TRUE;\n            data->WaveLaneCountMin = 32;\n            data->WaveLaneCountMax = 64;
+          # Patch WaveOps in D3D12_FEATURE_D3D12_OPTIONS1
+          sed -i '/case D3D12_FEATURE_D3D12_OPTIONS1:/{
+            :a
+            N
+            /return S_OK;/!ba
+            s/\(data->TotalLaneCount = .*;\)/\1\n            \/* UE5 Force WaveOps *\/\n            data->WaveOps = TRUE;\n            data->WaveLaneCountMin = 32;\n            data->WaveLaneCountMax = 64;/
           }' "$DEVICE_FILE"
           
-          sed -i '/case D3D12_FEATURE_SHADER_MODEL:/,/return S_OK;/{
-            /data->HighestShaderModel = /a\            /* UE5 Force Shader Model 6.6 */\n            if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6) data->HighestShaderModel = D3D_SHADER_MODEL_6_6;
+          # Patch ShaderModel in D3D12_FEATURE_SHADER_MODEL
+          sed -i '/case D3D12_FEATURE_SHADER_MODEL:/{
+            :a
+            N
+            /return S_OK;/!ba
+            s/\(data->HighestShaderModel = .*;\)/\1\n            \/* UE5 Force Shader Model 6.6 *\/\n            if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6) data->HighestShaderModel = D3D_SHADER_MODEL_6_6;/
           }' "$DEVICE_FILE"
           
-          sed -i '/case D3D12_FEATURE_D3D12_OPTIONS7:/,/return S_OK;/{
-            /data->MeshShaderTier = /a\            /* UE5 Force MeshShader Tier 1 */\n            if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1) data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;
+          # Patch MeshShader in D3D12_FEATURE_D3D12_OPTIONS7
+          sed -i '/case D3D12_FEATURE_D3D12_OPTIONS7:/{
+            :a
+            N
+            /return S_OK;/!ba
+            s/\(data->MeshShaderTier = .*;\)/\1\n            \/* UE5 Force MeshShader Tier 1 *\/\n            if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1) data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;/
           }' "$DEVICE_FILE"
           
+          # Verify patches
+          echo "Verifying patches..."
           PATCH_COUNT=$(grep -c "UE5 Force" "$DEVICE_FILE" || echo "0")
           echo "Patch markers found: $PATCH_COUNT"
+          
+          if [[ "$PATCH_COUNT" -lt 3 ]]; then
+            echo "WARNING: Expected 3 patches, found $PATCH_COUNT"
+            echo "Attempting alternative patch method..."
+            
+            # Alternative: Direct line insertion using awk
+            awk '
+            /case D3D12_FEATURE_D3D12_OPTIONS1:/ { in_options1=1 }
+            in_options1 && /data->WaveLaneCountMax = / {
+              print
+              print "            /* UE5 Force WaveOps */"
+              print "            data->WaveOps = TRUE;"
+              print "            data->WaveLaneCountMin = 32;"
+              print "            data->WaveLaneCountMax = 64;"
+              in_options1=0
+              next
+            }
+            
+            /case D3D12_FEATURE_SHADER_MODEL:/ { in_shader=1 }
+            in_shader && /data->HighestShaderModel = / {
+              print
+              print "            /* UE5 Force Shader Model 6.6 */"
+              print "            if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6) data->HighestShaderModel = D3D_SHADER_MODEL_6_6;"
+              in_shader=0
+              next
+            }
+            
+            /case D3D12_FEATURE_D3D12_OPTIONS7:/ { in_options7=1 }
+            in_options7 && /data->MeshShaderTier = / {
+              print
+              print "            /* UE5 Force MeshShader Tier 1 */"
+              print "            if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1) data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;"
+              in_options7=0
+              next
+            }
+            
+            { print }
+            ' "$DEVICE_FILE" > "$DEVICE_FILE.tmp" && mv "$DEVICE_FILE.tmp" "$DEVICE_FILE"
+            
+            PATCH_COUNT=$(grep -c "UE5 Force" "$DEVICE_FILE" || echo "0")
+            echo "After alternative patch - markers found: $PATCH_COUNT"
+          fi
+          
+          # Show patched sections
+          echo ""
+          echo "=== Patched sections ==="
+          grep -A2 "UE5 Force" "$DEVICE_FILE" || echo "No patches found"
 
       - name: Build vkd3d-proton
         if: steps.check.outputs.SKIP_RUN == 'false'
