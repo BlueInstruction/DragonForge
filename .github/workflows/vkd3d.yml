@@ -100,6 +100,37 @@ jobs:
           echo "COMMIT=$COMMIT_SHORT" >> $GITHUB_ENV
           echo "Commit: $COMMIT_SHORT"
 
+      - name: Analyze Source Code
+        if: steps.check.outputs.SKIP_RUN == 'false'
+        run: |
+          cd src
+          DEVICE_FILE="libs/vkd3d/device.c"
+          
+          echo "=== Analyzing device.c structure ==="
+          echo ""
+          echo "Looking for D3D12_FEATURE cases..."
+          grep -n "case D3D12_FEATURE_D3D12_OPTIONS1:" "$DEVICE_FILE" || echo "OPTIONS1 not found"
+          grep -n "case D3D12_FEATURE_SHADER_MODEL:" "$DEVICE_FILE" || echo "SHADER_MODEL not found"
+          grep -n "case D3D12_FEATURE_D3D12_OPTIONS7:" "$DEVICE_FILE" || echo "OPTIONS7 not found"
+          
+          echo ""
+          echo "Looking for data assignments..."
+          grep -n "data->WaveOps" "$DEVICE_FILE" || echo "WaveOps not found"
+          grep -n "data->HighestShaderModel" "$DEVICE_FILE" || echo "HighestShaderModel not found"
+          grep -n "data->MeshShaderTier" "$DEVICE_FILE" || echo "MeshShaderTier not found"
+          
+          echo ""
+          echo "=== OPTIONS1 section ==="
+          grep -A30 "case D3D12_FEATURE_D3D12_OPTIONS1:" "$DEVICE_FILE" | head -35
+          
+          echo ""
+          echo "=== SHADER_MODEL section ==="
+          grep -A15 "case D3D12_FEATURE_SHADER_MODEL:" "$DEVICE_FILE" | head -20
+          
+          echo ""
+          echo "=== OPTIONS7 section ==="
+          grep -A15 "case D3D12_FEATURE_D3D12_OPTIONS7:" "$DEVICE_FILE" | head -20
+
       - name: Apply UE5 Patch
         if: steps.check.outputs.SKIP_RUN == 'false'
         run: |
@@ -108,113 +139,99 @@ jobs:
           
           DEVICE_FILE="libs/vkd3d/device.c"
           
-          if [[ ! -f "$DEVICE_FILE" ]]; then
-            echo "ERROR: device.c not found"
-            exit 1
-          fi
+          # Backup
+          cp "$DEVICE_FILE" "$DEVICE_FILE.orig"
           
-          # Create patch file
-          cat > /tmp/ue5_patch.c << 'PATCH_EOF'
-          /* UE5 Compatibility - Insert after original assignments */
-          
-          /* For D3D12_FEATURE_D3D12_OPTIONS1 - Force WaveOps */
-          #define UE5_FORCE_WAVEOPS() do { \
-              data->WaveOps = TRUE; \
-              if (data->WaveLaneCountMin < 32) data->WaveLaneCountMin = 32; \
-              if (data->WaveLaneCountMax < 64) data->WaveLaneCountMax = 64; \
-          } while(0)
-          
-          /* For D3D12_FEATURE_SHADER_MODEL - Force SM 6.6 */
-          #define UE5_FORCE_SHADER_MODEL() do { \
-              if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6) \
-                  data->HighestShaderModel = D3D_SHADER_MODEL_6_6; \
-          } while(0)
-          
-          /* For D3D12_FEATURE_D3D12_OPTIONS7 - Force MeshShader */
-          #define UE5_FORCE_MESHSHADER() do { \
-              if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1) \
-                  data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1; \
-          } while(0)
-          PATCH_EOF
-          
-          # Add header comment
+          # Add header
           sed -i '1i\/* UE5.5 Compatibility Patch - Force WaveOps, ShaderModel 6.6, MeshShader */' "$DEVICE_FILE"
           
-          # Patch WaveOps in D3D12_FEATURE_D3D12_OPTIONS1
-          sed -i '/case D3D12_FEATURE_D3D12_OPTIONS1:/{
-            :a
-            N
-            /return S_OK;/!ba
-            s/\(data->TotalLaneCount = .*;\)/\1\n            \/* UE5 Force WaveOps *\/\n            data->WaveOps = TRUE;\n            data->WaveLaneCountMin = 32;\n            data->WaveLaneCountMax = 64;/
-          }' "$DEVICE_FILE"
+          # Use Python for reliable patching
+          python3 << 'PYTHON_SCRIPT'
+          import re
           
-          # Patch ShaderModel in D3D12_FEATURE_SHADER_MODEL
-          sed -i '/case D3D12_FEATURE_SHADER_MODEL:/{
-            :a
-            N
-            /return S_OK;/!ba
-            s/\(data->HighestShaderModel = .*;\)/\1\n            \/* UE5 Force Shader Model 6.6 *\/\n            if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6) data->HighestShaderModel = D3D_SHADER_MODEL_6_6;/
-          }' "$DEVICE_FILE"
+          with open("libs/vkd3d/device.c", "r") as f:
+              content = f.read()
           
-          # Patch MeshShader in D3D12_FEATURE_D3D12_OPTIONS7
-          sed -i '/case D3D12_FEATURE_D3D12_OPTIONS7:/{
-            :a
-            N
-            /return S_OK;/!ba
-            s/\(data->MeshShaderTier = .*;\)/\1\n            \/* UE5 Force MeshShader Tier 1 *\/\n            if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1) data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;/
-          }' "$DEVICE_FILE"
+          patches_applied = 0
           
-          # Verify patches
-          echo "Verifying patches..."
+          # Patch 1: WaveOps in OPTIONS1
+          # Find: data->WaveOps = ... and add override after
+          pattern1 = r'(data->WaveOps = [^;]+;)'
+          replacement1 = r'''\1
+                      /* UE5 Force WaveOps */
+                      data->WaveOps = TRUE;
+                      data->WaveLaneCountMin = 32;
+                      data->WaveLaneCountMax = 64;'''
+          
+          if re.search(pattern1, content):
+              content = re.sub(pattern1, replacement1, content, count=1)
+              patches_applied += 1
+              print("Patch 1 applied: WaveOps")
+          else:
+              print("Patch 1 FAILED: WaveOps pattern not found")
+          
+          # Patch 2: ShaderModel
+          # Find: data->HighestShaderModel = ... and add override after
+          pattern2 = r'(data->HighestShaderModel = [^;]+;)(\s*\n\s*return S_OK;)'
+          replacement2 = r'''\1
+                      /* UE5 Force Shader Model 6.6 */
+                      if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6)
+                          data->HighestShaderModel = D3D_SHADER_MODEL_6_6;\2'''
+          
+          if re.search(pattern2, content):
+              content = re.sub(pattern2, replacement2, content, count=1)
+              patches_applied += 1
+              print("Patch 2 applied: ShaderModel")
+          else:
+              # Try alternative pattern
+              pattern2_alt = r'(data->HighestShaderModel = [^;]+;)'
+              replacement2_alt = r'''\1
+                      /* UE5 Force Shader Model 6.6 */
+                      if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6)
+                          data->HighestShaderModel = D3D_SHADER_MODEL_6_6;'''
+              if re.search(pattern2_alt, content):
+                  content = re.sub(pattern2_alt, replacement2_alt, content, count=1)
+                  patches_applied += 1
+                  print("Patch 2 applied: ShaderModel (alt)")
+              else:
+                  print("Patch 2 FAILED: ShaderModel pattern not found")
+          
+          # Patch 3: MeshShader in OPTIONS7
+          # Find: data->MeshShaderTier = ... and add override after
+          pattern3 = r'(data->MeshShaderTier = [^;]+;)'
+          replacement3 = r'''\1
+                      /* UE5 Force MeshShader Tier 1 */
+                      if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1)
+                          data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;'''
+          
+          if re.search(pattern3, content):
+              content = re.sub(pattern3, replacement3, content, count=1)
+              patches_applied += 1
+              print("Patch 3 applied: MeshShader")
+          else:
+              print("Patch 3 FAILED: MeshShader pattern not found")
+          
+          with open("libs/vkd3d/device.c", "w") as f:
+              f.write(content)
+          
+          print(f"\nTotal patches applied: {patches_applied}/3")
+          PYTHON_SCRIPT
+          
+          # Verify
+          echo ""
+          echo "=== Verification ==="
           PATCH_COUNT=$(grep -c "UE5 Force" "$DEVICE_FILE" || echo "0")
           echo "Patch markers found: $PATCH_COUNT"
           
-          if [[ "$PATCH_COUNT" -lt 3 ]]; then
-            echo "WARNING: Expected 3 patches, found $PATCH_COUNT"
-            echo "Attempting alternative patch method..."
-            
-            # Alternative: Direct line insertion using awk
-            awk '
-            /case D3D12_FEATURE_D3D12_OPTIONS1:/ { in_options1=1 }
-            in_options1 && /data->WaveLaneCountMax = / {
-              print
-              print "            /* UE5 Force WaveOps */"
-              print "            data->WaveOps = TRUE;"
-              print "            data->WaveLaneCountMin = 32;"
-              print "            data->WaveLaneCountMax = 64;"
-              in_options1=0
-              next
-            }
-            
-            /case D3D12_FEATURE_SHADER_MODEL:/ { in_shader=1 }
-            in_shader && /data->HighestShaderModel = / {
-              print
-              print "            /* UE5 Force Shader Model 6.6 */"
-              print "            if (data->HighestShaderModel < D3D_SHADER_MODEL_6_6) data->HighestShaderModel = D3D_SHADER_MODEL_6_6;"
-              in_shader=0
-              next
-            }
-            
-            /case D3D12_FEATURE_D3D12_OPTIONS7:/ { in_options7=1 }
-            in_options7 && /data->MeshShaderTier = / {
-              print
-              print "            /* UE5 Force MeshShader Tier 1 */"
-              print "            if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1) data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;"
-              in_options7=0
-              next
-            }
-            
-            { print }
-            ' "$DEVICE_FILE" > "$DEVICE_FILE.tmp" && mv "$DEVICE_FILE.tmp" "$DEVICE_FILE"
-            
-            PATCH_COUNT=$(grep -c "UE5 Force" "$DEVICE_FILE" || echo "0")
-            echo "After alternative patch - markers found: $PATCH_COUNT"
-          fi
-          
-          # Show patched sections
           echo ""
           echo "=== Patched sections ==="
-          grep -A2 "UE5 Force" "$DEVICE_FILE" || echo "No patches found"
+          grep -B1 -A3 "UE5 Force" "$DEVICE_FILE" || echo "No patches found"
+          
+          if [[ "$PATCH_COUNT" -lt 3 ]]; then
+            echo ""
+            echo "WARNING: Not all patches applied. Showing diff:"
+            diff "$DEVICE_FILE.orig" "$DEVICE_FILE" | head -100 || true
+          fi
 
       - name: Build vkd3d-proton
         if: steps.check.outputs.SKIP_RUN == 'false'
