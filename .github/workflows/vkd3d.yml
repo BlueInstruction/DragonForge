@@ -1,0 +1,119 @@
+name: VKD3D-Proton
+
+on:
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+    inputs:
+      FORCE_MODE:
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+defaults:
+  run:
+    shell: 'bash --noprofile --norc -Eeuo pipefail {0}'
+
+jobs:
+  build_ue5_patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git meson ninja-build curl jq python3-venv glslang-tools zstd llvm
+
+      - name: Fetch Latest Tag
+        id: fetch_tag
+        run: |
+          LATEST_TAG=$(curl -s https://api.github.com/repos/HansKristian-Work/vkd3d-proton/releases/latest | jq -r .tag_name)
+          if [[ -z "$LATEST_TAG" || "$LATEST_TAG" == "null" ]]; then
+            echo "ERROR: Failed to fetch latest tag"
+            exit 1
+          fi
+          echo "TAG=$LATEST_TAG" >> $GITHUB_ENV
+          echo "VER=${LATEST_TAG#v}" >> $GITHUB_ENV
+
+      - name: Check Release Existence
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXISTS=$(gh release view "build-${{ env.VER }}" --repo ${{ github.repository }} > /dev/null 2>&1 && echo "true" || echo "false")
+          if [[ "${{ inputs.FORCE_MODE }}" == "true" ]]; then EXISTS="false"; fi
+          echo "SKIP_RUN=$EXISTS" >> $GITHUB_OUTPUT
+
+      - name: Clone Source
+        if: steps.check.outputs.SKIP_RUN == 'false'
+        run: |
+          git clone --recursive --branch ${{ env.TAG }} https://github.com/HansKristian-Work/vkd3d-proton.git src
+
+      - name: Apply UE5 Patch
+        if: steps.check.outputs.SKIP_RUN == 'false'
+        run: |
+          echo "Applying UE5 WaveOps + Shader Model patch"
+          cd src
+          git apply ../patches/ue5_feature_override.patch
+
+      - name: Build vkd3d-proton
+        if: steps.check.outputs.SKIP_RUN == 'false'
+        run: |
+          cd src
+          ./package-release.sh ${{ env.TAG }} ../out --no-package
+
+      - name: Verify Build
+        if: steps.check.outputs.SKIP_RUN == 'false'
+        run: |
+          SRC_PATH=$(find out -maxdepth 1 -type d -name "vkd3d-proton-*")
+          if [[ -z "$SRC_PATH" ]]; then
+            echo "ERROR: Build output not found"
+            exit 1
+          fi
+          for arch in x64 x86; do
+            for dll in d3d12.dll d3d12core.dll; do
+              if [[ ! -f "$SRC_PATH/$arch/$dll" ]]; then
+                echo "ERROR: Missing $arch/$dll"
+                exit 1
+              fi
+            done
+          done
+          echo "Build verification passed"
+
+      - name: Prepare WCP
+        if: steps.check.outputs.SKIP_RUN == 'false'
+        run: |
+          mkdir -p staging/system32 staging/syswow64
+          SRC_PATH=$(find out -maxdepth 1 -type d -name "vkd3d-proton-*")
+          cp "$SRC_PATH/x64/"*.dll staging/system32/
+          cp "$SRC_PATH/x86/"*.dll staging/syswow64/
+          jq -n \
+            --arg TYPE "VKD3D" \
+            --arg VER "${{ env.VER }}" \
+            --arg DESC "VKD3D-Proton ${{ env.VER }} (UE5 Patch)" \
+            '{type:$TYPE,versionName:$VER,description:$DESC,files:[]}' > staging/profile.json
+          cd staging
+          tar --zstd --format=gnu -cf "../vkd3d-proton-${{ env.VER }}.wcp" profile.json system32 syswow64
+
+      - name: Deploy Release
+        if: steps.check.outputs.SKIP_RUN == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ env.VER }}
+          name: VKD3D-Proton ${{ env.VER }} (UE5 Patch)
+          files: vkd3d-proton-${{ env.VER }}.wcp
+          body: |
+            VKD3D-Proton ${{ env.VER }} patched for UE5.5 support on Winlator
