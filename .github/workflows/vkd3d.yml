@@ -8,6 +8,10 @@ on:
       FORCE_MODE:
         type: boolean
         default: false
+      VERSION:
+        description: "Specific version to build (leave empty for latest)"
+        required: false
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -52,16 +56,25 @@ jobs:
             mingw-w64 \
             mingw-w64-tools
 
-      - name: Fetch Latest Tag
-        id: fetch_tag
+      - name: Fetch Version
         run: |
-          LATEST_TAG=$(curl -s https://api.github.com/repos/HansKristian-Work/vkd3d-proton/releases/latest | jq -r .tag_name)
+          if [[ -n "${{ inputs.VERSION }}" ]]; then
+            LATEST_TAG="${{ inputs.VERSION }}"
+            if [[ ! "$LATEST_TAG" =~ ^v ]]; then
+              LATEST_TAG="v$LATEST_TAG"
+            fi
+          else
+            LATEST_TAG=$(curl -s https://api.github.com/repos/HansKristian-Work/vkd3d-proton/releases/latest | jq -r .tag_name)
+          fi
+          
           if [[ -z "$LATEST_TAG" || "$LATEST_TAG" == "null" ]]; then
-            echo "ERROR: Failed to fetch latest tag"
+            echo "ERROR: Failed to fetch version"
             exit 1
           fi
+          
           echo "TAG=$LATEST_TAG" >> $GITHUB_ENV
           echo "VER=${LATEST_TAG#v}" >> $GITHUB_ENV
+          echo "Detected version: $LATEST_TAG"
 
       - name: Check Release Existence
         id: check
@@ -71,16 +84,26 @@ jobs:
           EXISTS=$(gh release view "build-${{ env.VER }}" --repo ${{ github.repository }} > /dev/null 2>&1 && echo "true" || echo "false")
           if [[ "${{ inputs.FORCE_MODE }}" == "true" ]]; then EXISTS="false"; fi
           echo "SKIP_RUN=$EXISTS" >> $GITHUB_OUTPUT
+          echo "Release exists: $EXISTS"
 
       - name: Clone Source
         if: steps.check.outputs.SKIP_RUN == 'false'
         run: |
+          echo "Cloning vkd3d-proton ${{ env.TAG }}..."
           git clone --recursive --branch ${{ env.TAG }} https://github.com/HansKristian-Work/vkd3d-proton.git src
+
+      - name: Get Commit Hash
+        if: steps.check.outputs.SKIP_RUN == 'false'
+        run: |
+          cd src
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          echo "COMMIT=$COMMIT_SHORT" >> $GITHUB_ENV
+          echo "Commit: $COMMIT_SHORT"
 
       - name: Apply UE5 Patch
         if: steps.check.outputs.SKIP_RUN == 'false'
         run: |
-          echo "Applying UE5 WaveOps + Shader Model patch"
+          echo "Applying UE5 WaveOps + Shader Model patch..."
           cd src
           
           DEVICE_FILE="libs/vkd3d/device.c"
@@ -104,8 +127,8 @@ jobs:
             /data->MeshShaderTier = /a\            /* UE5 Force MeshShader Tier 1 */\n            if (data->MeshShaderTier < D3D12_MESH_SHADER_TIER_1) data->MeshShaderTier = D3D12_MESH_SHADER_TIER_1;
           }' "$DEVICE_FILE"
           
-          echo "Patch applied, verifying..."
-          grep -c "UE5 Force" "$DEVICE_FILE" && echo "Verification passed" || echo "WARNING: Patch may not have applied correctly"
+          PATCH_COUNT=$(grep -c "UE5 Force" "$DEVICE_FILE" || echo "0")
+          echo "Patch markers found: $PATCH_COUNT"
 
       - name: Build vkd3d-proton
         if: steps.check.outputs.SKIP_RUN == 'false'
@@ -121,6 +144,7 @@ jobs:
             echo "ERROR: Build output not found"
             exit 1
           fi
+          
           for arch in x64 x86; do
             for dll in d3d12.dll d3d12core.dll; do
               if [[ ! -f "$SRC_PATH/$arch/$dll" ]]; then
@@ -129,22 +153,49 @@ jobs:
               fi
             done
           done
+          
           echo "Build verification passed"
 
-      - name: Prepare WCP
+      - name: Prepare WCP Package
         if: steps.check.outputs.SKIP_RUN == 'false'
         run: |
           mkdir -p staging/system32 staging/syswow64
           SRC_PATH=$(find out -maxdepth 1 -type d -name "vkd3d-proton-*")
+          
           cp "$SRC_PATH/x64/"*.dll staging/system32/
           cp "$SRC_PATH/x86/"*.dll staging/syswow64/
-          jq -n \
-            --arg TYPE "VKD3D" \
-            --arg VER "${{ env.VER }}" \
-            --arg DESC "VKD3D-Proton ${{ env.VER }} (UE5 Patch)" \
-            '{type:$TYPE,versionName:$VER,description:$DESC,files:[]}' > staging/profile.json
+          
+          cat > staging/profile.json << EOF
+          {
+            "type": "VKD3D",
+            "versionName": "${{ env.VER }}-${{ env.COMMIT }}",
+            "versionCode": 0,
+            "description": "VKD3D-Proton ${{ env.VER }} UE5 Patch - Force WaveOps, ShaderModel 6.6, MeshShader",
+            "files": [
+              {
+                "source": "system32/d3d12.dll",
+                "target": "\${system32}/d3d12.dll"
+              },
+              {
+                "source": "system32/d3d12core.dll",
+                "target": "\${system32}/d3d12core.dll"
+              },
+              {
+                "source": "syswow64/d3d12.dll",
+                "target": "\${syswow64}/d3d12.dll"
+              },
+              {
+                "source": "syswow64/d3d12core.dll",
+                "target": "\${syswow64}/d3d12core.dll"
+              }
+            ]
+          }
+          EOF
+          
           cd staging
           tar --zstd --format=gnu -cf "../vkd3d-proton-${{ env.VER }}.wcp" profile.json system32 syswow64
+          
+          echo "Package created: vkd3d-proton-${{ env.VER }}.wcp"
 
       - name: Deploy Release
         if: steps.check.outputs.SKIP_RUN == 'false'
@@ -157,6 +208,8 @@ jobs:
           files: vkd3d-proton-${{ env.VER }}.wcp
           body: |
             VKD3D-Proton ${{ env.VER }} patched for UE5.5 support on Winlator
+            
+            Commit: ${{ env.COMMIT }}
             
             Patches applied:
             - Force WaveOps enabled
