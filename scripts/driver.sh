@@ -1,11 +1,7 @@
 #!/bin/bash -e
-
 # =============================================================================
 # Dragon Driver v4.1 - Professional Turnip Build System
 # =============================================================================
-# Fixed: Tiger Velocity spell now correctly modifies boolean functions only
-# =============================================================================
-
 set -o pipefail
 
 # === COLORS ===
@@ -515,7 +511,7 @@ package_build() {
 
     cp "mesa/$SO_FILE" libvulkan_freedreno.so
     patchelf --set-soname "vulkan.adreno.so" libvulkan_freedreno.so
-    mv libvulkan_freedreno.so vulkan.dragon.so
+    mv libvulkan_freedreno.so vulkan.adreno.so
 
     local FILENAME="Dragon-${variant_name}-${DRAGON_VER}-${COMMIT_SHORT}"
 
@@ -526,15 +522,15 @@ package_build() {
     "description": "Mesa ${DRAGON_VER} - ${variant_name} variant - Built: ${BUILD_DATE}",
     "author": "DragonDriver",
     "packageVersion": "1",
-    "vendor": "Mesa/Freedreno",
+    "vendor": "Mesa/Freedreno/whitebelyash",
     "driverVersion": "${DRAGON_VER}",
     "minApi": 27,
-    "libraryName": "vulkan.dragon.so"
+    "libraryName": "vulkan.adreno.so"
 }
 EOF
 
-    zip -9 "${FILENAME}.zip" vulkan.dragon.so meta.json
-    rm -f vulkan.dragon.so meta.json
+    zip -9 "${FILENAME}.zip" vulkan.adreno.so meta.json
+    rm -f vulkan.adreno.so meta.json
 
     local size=$(du -h "${FILENAME}.zip" | cut -f1)
     success "Created: ${FILENAME}.zip ($size)"
@@ -605,8 +601,8 @@ build_hawk() {
     driver_dragon "Hawk"
 }
 
-build_dragon_ue5() {
-    header "DRAGON-UE5 BUILD (DX12 Heavy)"
+build_dragon() {
+    header "DRAGON BUILD (DX12 Heavy)"
     reset_mesa
 
     # Core spells - safe inline modifications only
@@ -627,12 +623,12 @@ build_dragon_ue5() {
     # apply_spell_file "dx12/enhanced_barriers_relax"
     # apply_spell_file "dx12/ue5_resource_aliasing"
 
-    driver_dragon "Dragon-UE5"
+    driver_dragon "Dragon"
 }
 
 build_all() {
     header "BUILDING ALL VARIANTS"
-    local variants=("tiger" "tiger_phoenix" "falcon" "shadow" "hawk" "dragon_ue5")
+    local variants=("tiger" "tiger_phoenix" "falcon" "shadow" "hawk" "dragon")
     local success_count=0
     local failed=()
 
@@ -677,11 +673,11 @@ main() {
         falcon)         build_falcon ;;
         shadow)         build_shadow ;;
         hawk)           build_hawk ;;
-        dragon-ue5)     build_dragon_ue5 ;;
+        dragon)     build_dragon ;;
         all)            build_all ;;
         *)
             warn "Unknown variant: $VARIANT"
-            info "Available: tiger, tiger-phoenix, falcon, shadow, hawk, dragon-ue5, all"
+            info "Available: tiger, tiger-phoenix, falcon, shadow, hawk, dragon, all"
             warn "Defaulting to tiger..."
             build_tiger
             ;;
