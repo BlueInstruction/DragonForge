@@ -33,15 +33,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            target: x86_64-w64-mingw32
-          - arch: x86
-            target: i686-w64-mingw32
 
     steps:
       - name: Checkout
@@ -211,7 +202,7 @@ jobs:
                 echo "Missing: $DLL"
                 exit 1
               fi
-              SIZE=$(stat -f%z "$DLL" 2>/dev/null || stat -c%s "$DLL")
+              SIZE=$(stat -c%s "$DLL" 2>/dev/null || stat -f%z "$DLL")
               echo "$DLL: ${SIZE} bytes"
             done
           done
@@ -222,8 +213,9 @@ jobs:
         if: steps.check.outputs.SKIP == 'false'
         run: |
           cd "${{ env.SRC_PATH }}"
-          find . -name "*.dll" -type f -exec sha256sum {} \; > ../checksums.txt
-          cat ../checksums.txt
+          find . -name "*.dll" -type f -exec sha256sum {} \; > ../../checksums.txt
+          cd ../..
+          cat checksums.txt
 
       - name: Create Package
         if: steps.check.outputs.SKIP == 'false'
@@ -283,6 +275,13 @@ jobs:
             - Commit: ${{ env.COMMIT }}
             - Date: ${{ env.BUILD_DATE }}
             - Size: ${{ env.PKG_SIZE }}
+            
+            **Files:**
+            - d3d12.dll (x64/x86)
+            - d3d12core.dll (x64/x86)
+            
+            Optimized for compatibility with various systems.
+            See checksums.txt for file verification.
             
             Source: https://github.com/HansKristian-Work/vkd3d-proton
           draft: false
