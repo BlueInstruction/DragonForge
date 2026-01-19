@@ -274,7 +274,6 @@ jobs:
             - Version: ${{ env.VER }}
             - Commit: ${{ env.COMMIT }}
             - Date: ${{ env.BUILD_DATE }}
-            - Size: ${{ env.PKG_SIZE }}
             
             Source: https://github.com/HansKristian-Work/vkd3d-proton
           draft: false
