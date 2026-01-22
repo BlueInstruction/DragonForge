@@ -1,10 +1,8 @@
 #!/bin/bash -e
-# =============================================================================
-# Dragon Driver v4.1 - Professional Turnip Build System
-# =============================================================================
+
 set -o pipefail
 
-# === COLORS ===
+# COLORS
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 CYAN='\033[0;36m'
@@ -13,7 +11,7 @@ MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# === CONFIG ===
+# CONFIG
 CHAMBER="$(pwd)/driver_chamber"
 SPELLS_DIR="$(pwd)/spells"
 CORE_VER="${CORE_VER:-android-ndk-r29}"
@@ -35,7 +33,7 @@ MAX_RETRIES=3
 RETRY_DELAY=15
 BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
-# === LOGGING ===
+# LOGGING
 log()     { echo -e "${CYAN}[Dragon]${NC} $1"; }
 success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -43,7 +41,7 @@ error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 info()    { echo -e "${MAGENTA}[INFO]${NC} $1"; }
 header()  { echo -e "\n${BOLD}${CYAN}=== $1 ===${NC}\n"; }
 
-# === UTILITIES ===
+# UTILITIES
 retry_command() {
     local cmd="$1"
     local description="$2"
@@ -79,7 +77,7 @@ check_dependencies() {
     success "All dependencies found"
 }
 
-# === NDK SETUP ===
+# NDK SETUP
 setup_ndk() {
     header "NDK Setup"
 
@@ -107,7 +105,7 @@ setup_ndk() {
     success "NDK installed: $ANDROID_NDK_HOME"
 }
 
-# === MESA CLONE ===
+# MESA CLONE
 clone_mesa() {
     header "Mesa Source"
 
@@ -166,7 +164,7 @@ apply_whitebelyash_fixes() {
         sed -i '/REG_A8XX_GRAS_UNKNOWN_/d' src/freedreno/common/freedreno_devices.py 2>/dev/null || true
     fi
 
-    # DXVK chip check removal
+    # chip check removal
     find src/freedreno/vulkan -name "*.cc" -print0 2>/dev/null | \
         xargs -0 sed -i 's/ && (pdevice->info->chip != 8)//g' 2>/dev/null || true
     find src/freedreno/vulkan -name "*.cc" -print0 2>/dev/null | \
@@ -175,7 +173,7 @@ apply_whitebelyash_fixes() {
     success "Whitebelyash fixes applied"
 }
 
-# === PREPARE CHAMBER ===
+# PREPARE CHAMBER
 prepare_chamber() {
     header "Preparing Build Chamber"
     mkdir -p "$CHAMBER"
@@ -188,7 +186,7 @@ prepare_chamber() {
     success "Chamber ready - Mesa $DRAGON_VER ($COMMIT_SHORT)"
 }
 
-# === SPELL SYSTEM ===
+# SPELL SYSTEM
 apply_spell_file() {
     local spell_path="$1"
     local full_path="$SPELLS_DIR/$spell_path.patch"
@@ -237,7 +235,7 @@ apply_merge_request() {
     return 1
 }
 
-# === INLINE SPELLS ===
+# INLINE SPELLS
 
 # Tiger Velocity - Force sysmem rendering by setting TU_DEBUG environment
 # This is a safe approach that does not modify void functions
@@ -405,7 +403,7 @@ spell_ue5_resource_aliasing() {
     success "UE5 Resource Aliasing applied"
 }
 
-# === BUILD SYSTEM ===
+# BUILD SYSTEM
 create_cross_file() {
     local NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
     local CROSS_FILE="$CHAMBER/cross_dragon"
@@ -548,7 +546,7 @@ driver_dragon() {
     package_build "$variant_name"
 }
 
-# === VARIANT BUILDERS ===
+# VARIANT BUILDERS
 reset_mesa() {
     log "Resetting Mesa source..."
     cd "$CHAMBER/mesa"
@@ -567,7 +565,7 @@ build_tiger_phoenix() {
     header "TIGER-PHOENIX BUILD"
     reset_mesa
     spell_tiger_velocity
-    apply_spell_file "phoenix/wings_boost"
+    # apply_spell_file "phoenix/wings_boost"
     driver_dragon "Tiger-Phoenix"
 }
 
@@ -576,18 +574,18 @@ build_falcon() {
     reset_mesa
     spell_falcon_memory
     spell_tiger_velocity
-    apply_spell_file "falcon/a6xx_fix"
-    apply_spell_file "falcon/a750_cse_fix"
-    apply_spell_file "falcon/lrz_fix"
-    apply_spell_file "falcon/adreno750_dx12"
-    apply_spell_file "falcon/vertex_buffer_fix"
+    # apply_spell_file "falcon/a6xx_fix"
+    # apply_spell_file "falcon/a750_cse_fix"
+    # apply_spell_file "falcon/lrz_fix"
+    # apply_spell_file "falcon/adreno750_dx12"
+    # apply_spell_file "falcon/vertex_buffer_fix"
     driver_dragon "Falcon"
 }
 
 build_shadow() {
     header "SHADOW BUILD"
     reset_mesa
-    apply_merge_request "37802"
+    # apply_merge_request "37802"
     driver_dragon "Shadow"
 }
 
@@ -596,9 +594,9 @@ build_hawk() {
     reset_mesa
     spell_tiger_velocity
     spell_falcon_memory
-    apply_spell_file "phoenix/wings_boost"
-    apply_spell_file "common/memory_fix"
-    driver_dragon "Hawk"
+    # apply_spell_file "phoenix/wings_boost"
+    # apply_spell_file "common/memory_fix"
+    # driver_dragon "Hawk"
 }
 
 build_dragon() {
@@ -652,12 +650,12 @@ build_all() {
     [ ${#failed[@]} -gt 0 ] && warn "Failed: ${failed[*]}"
 }
 
-# === MAIN ===
+# MAIN
 main() {
     echo ""
-    echo "============================================================"
-    echo "           Dragon Driver v4.1 - Build System"
-    echo "============================================================"
+    echo ""
+    echo ""
+    echo ""
     echo ""
     info "Variant: $VARIANT"
     info "Mesa Source: $MESA_SOURCE"
@@ -684,9 +682,9 @@ main() {
     esac
 
     echo ""
-    success "============================================================"
-    success "           Dragon Driver Build Complete"
-    success "============================================================"
+    success ""
+    success "Complete"
+    success ""
     echo ""
 
     if ls "$CHAMBER"/*.zip 1>/dev/null 2>&1; then
