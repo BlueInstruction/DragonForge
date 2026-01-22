@@ -1,25 +1,25 @@
-name: Dragon Driver
+name: Turnip Driver Build
 
 on:
   workflow_dispatch:
     inputs:
-      variant:
+      build_variant:
         type: choice
-        description: "Select Dragon variant"
-        default: "tiger"
+        description: "Select build variant"
+        default: "gen8"
         options:
-          - tiger
-          - tiger-phoenix
-          - falcon
+          - gen8
+          - gen8-phoenix
+          - gen7
           - shadow
           - hawk
-          - dragon
+          - dx12-heavy
           - all
       custom_commit:
         description: "Custom Mesa commit (optional)"
         required: false
         default: ""
-      mesa_source:
+      mesa_repo_source:
         type: choice
         description: "Mesa source repository"
         default: "freedesktop"
@@ -33,8 +33,8 @@ permissions:
   contents: write
 
 env:
-  CORE_VER: "android-ndk-r29"
-  LEVEL: "35"
+  NDK_VERSION: "android-ndk-r30"
+  API_LEVEL: "35"
 
 jobs:
   build_driver:
@@ -68,26 +68,26 @@ jobs:
           sudo apt build-dep mesa -y
           pip install --break-system-packages meson mako PyYAML
 
-      - name: Build Dragon Driver
+      - name: Build Turnip Driver
         run: |
-          chmod +x scripts/driver.sh
-          export MESA_SOURCE="${{ github.event.inputs.mesa_source || 'freedesktop' }}"
-          bash scripts/driver.sh "${{ github.event.inputs.variant || 'tiger' }}" "${{ github.event.inputs.custom_commit }}"
+          chmod +x scripts/build.sh
+          export MESA_REPO_SOURCE="${{ github.event.inputs.mesa_repo_source || 'freedesktop' }}"
+          bash scripts/build.sh "\( {{ github.event.inputs.build_variant || 'gen8' }}" " \){{ github.event.inputs.custom_commit }}"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dragon-${{ github.event.inputs.variant || 'tiger' }}-${{ github.run_number }}
-          path: driver_chamber/*.zip
+          name: turnip-\( {{ github.event.inputs.build_variant || 'gen8' }}- \){{ github.run_number }}
+          path: build_workspace/*.zip
           retention-days: 30
 
       - name: Prepare Release Info
         id: info
         run: |
           echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
-          echo "tag=Dragon-$(date +'%Y%m%d%H%M')" >> $GITHUB_OUTPUT
-          if [ -f driver_chamber/version.txt ]; then
-            echo "mesa_ver=$(cat driver_chamber/version.txt)" >> $GITHUB_OUTPUT
+          echo "tag=Turnip-$(date +'%Y%m%d%H%M')" >> $GITHUB_OUTPUT
+          if [ -f build_workspace/version.txt ]; then
+            echo "mesa_ver=$(cat build_workspace/version.txt)" >> $GITHUB_OUTPUT
           else
             echo "mesa_ver=unknown" >> $GITHUB_OUTPUT
           fi
@@ -95,16 +95,16 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "Dragon Driver ${{ steps.info.outputs.date }}"
+          name: "Turnip Driver ${{ steps.info.outputs.date }}"
           tag_name: ${{ steps.info.outputs.tag }}
           body: |
-            ## Dragon Driver Build
+            ## Turnip Driver Build
             
-            **Variant:** `${{ github.event.inputs.variant || 'tiger' }}`
+            **Variant:** `${{ github.event.inputs.build_variant || 'gen8' }}`
             **Mesa Version:** ${{ steps.info.outputs.mesa_ver }}
             **Date:** ${{ steps.info.outputs.date }}
-            **Source:** ${{ github.event.inputs.mesa_source || 'freedesktop' }}
+            **Source:** ${{ github.event.inputs.mesa_repo_source || 'freedesktop' }}
             
-          files: driver_chamber/*.zip
+          files: build_workspace/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
