@@ -3,18 +3,6 @@ name: Turnip Driver
 on:
   workflow_dispatch:
    inputs:
-     # build_variant:
-      # type: choice
-      # description: "Select build variant"
-      # default: "gen8"
-      # options:
-      #   - gen8
-      #   - gen8-phoenix
-      #   - gen7
-      #   - shadow
-      #   - hawk
-      #   - dx12-heavy
-      #   - all
       custom_commit:
         description: "Custom Mesa commit (optional)"
         required: false
@@ -72,7 +60,15 @@ jobs:
         run: |
           chmod +x scripts/build.sh
           export MESA_REPO_SOURCE="${{ github.event.inputs.mesa_repo_source || 'freedesktop' }}"
-          bash scripts/build.sh "${{ github.event.inputs.build_variant || 'gen8' }}" "${{ github.event.inputs.custom_commit }}"
+          bash scripts/build.sh "${{ github.event.inputs.build_variant || 'gen8' }}" "${{ github.event.inputs.custom_commit }}" || {
+            echo ""
+            echo "============================================"
+            echo "========== MESON ERROR LOG =========="
+            echo "============================================"
+            cat build_workspace/meson_Gen8.log 2>/dev/null || echo "Log file not found"
+            echo "============================================"
+            exit 1
+          }
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
