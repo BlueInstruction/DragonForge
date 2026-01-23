@@ -4,25 +4,28 @@ on:
   workflow_dispatch:
     inputs:
       custom_commit:
-        description: "Custom Mesa commit (optional)"
+        description: ""
         required: false
         default: ""
       mesa_repo_source:
         type: choice
-        description: "Mesa source repository"
+        description: "repo source"
         default: "freedesktop"
         options:
           - freedesktop
           - whitebelyash
       build_variant:
         type: choice
-        description: "Build variant (gen7 for freedesktop, gen8 for whitebelyash)"
-        default: "gen7"
+        description: "variants"
+        default: "a7xx"
         options:
-          - gen7
-          - gen8
-  schedule:
-    - cron: "0 6 1,15 * *"
+          - a7xx
+          - a8xx
+        # -
+        # -
+          
+  schedule:  
+    - cron: "0 7 7,* * *"
 
 permissions:
   contents: write
@@ -33,9 +36,8 @@ env:
 
 jobs:
   build_driver:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-
+    runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -67,23 +69,23 @@ jobs:
         run: |
           chmod +x scripts/build.sh
           export MESA_REPO_SOURCE="${{ github.event.inputs.mesa_repo_source || 'freedesktop' }}"
-          export BUILD_VARIANT="${{ github.event.inputs.build_variant || 'gen7' }}"
+          export BUILD_VARIANT="${{ github.event.inputs.build_variant || 'a7xx' }}"
           bash scripts/build.sh "$BUILD_VARIANT" "${{ github.event.inputs.custom_commit }}" || {
             echo ""
-            echo "============================================"
-            echo "========== MESON ERROR LOG =========="
-            echo "============================================"
+            echo ""
+            echo "MESON ERROR LOG"
+            echo ""
             cat build_workspace/meson_*.log 2>/dev/null || echo "Log file not found"
-            echo "============================================"
+            echo ""
             exit 1
           }
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: turnip-${{ github.event.inputs.mesa_repo_source || 'freedesktop' }}-${{ github.event.inputs.build_variant || 'gen7' }}-${{ github.run_number }}
+          name: turnip-${{ github.event.inputs.mesa_repo_source || 'freedesktop' }}-${{ github.event.inputs.build_variant || 'a7xx' }}-${{ github.run_number }}
           path: build_workspace/*.zip
-          retention-days: 30
+          retention-days: 31
 
       - name: Prepare Release Info
         id: info
@@ -104,7 +106,6 @@ jobs:
           body: |
             ## Turnip Driver
             
-            **Variant:** `${{ github.event.inputs.build_variant || 'gen7' }}`
             **Mesa Version:** ${{ steps.info.outputs.mesa_ver }}
             **Date:** ${{ steps.info.outputs.date }}
             **Source:** ${{ github.event.inputs.mesa_repo_source || 'freedesktop' }}
