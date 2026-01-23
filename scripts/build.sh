@@ -412,8 +412,8 @@ create_cross_file() {
     cat <<EOF > "$CROSS_FILE"
 [binaries]
 ar = '$NDK_BIN/llvm-ar'
-c = ['ccache', '\( NDK_BIN/aarch64-linux-android \){API_LEVEL}-clang']
-cpp = ['ccache', '\( NDK_BIN/aarch64-linux-android \){API_LEVEL}-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++']
+c = ['ccache', '$NDK_BIN/aarch64-linux-android${API_LEVEL}-clang']
+cpp = ['ccache', '$NDK_BIN/aarch64-linux-android${API_LEVEL}-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++']
 c_ld = 'lld'
 cpp_ld = 'lld'
 strip = '$NDK_BIN/llvm-strip'
@@ -452,7 +452,7 @@ run_meson_setup() {
         --native-file "$BUILD_DIR/native_build" \
         -Dbuildtype=release \
         -Dplatforms=android \
-        -Dplatform-sdk-version=$LEVEL \
+        -Dplatform-sdk-version=$API_LEVEL \
         -Dandroid-stub=true \
         -Dgallium-drivers= \
         -Dvulkan-drivers=freedreno \
