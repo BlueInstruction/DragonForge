@@ -2,15 +2,6 @@
 
 set -o pipefail
 
-# COLORS
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-MAGENTA='\033[0;35m'
-BOLD='\033[1m'
-NC='\033[0m'
-
 # CONFIG
 BUILD_DIR="$(pwd)/build_workspace"
 PATCHES_DIR="$(pwd)/patches"
@@ -20,13 +11,17 @@ API_LEVEL="${API_LEVEL:-35}"
 # Mesa Sources
 MESA_FREEDESKTOP="https://gitlab.freedesktop.org/mesa/mesa.git"
 MESA_FREEDESKTOP_MIRROR="https://github.com/mesa3d/mesa.git"
-MESA_WHITEBELYASH="https://github.com/whitebelyash/mesa-tu8.git"
-MESA_WHITEBELYASH_BRANCH="8gen"
+MESA_8GEN_SOURCE="https://github.com/whitebelyash/mesa-tu8.git"
+MESA_8GEN_BRANCH="8gen"
 
-# Runtime Config
+# Runtime Config from Environment
+MESA_SOURCE_TYPE="${MESA_SOURCE_TYPE:-official_release}"
+OFFICIAL_VERSION="${OFFICIAL_VERSION:-25.3.4}"
+STAGING_BRANCH="${STAGING_BRANCH:-staging/25.3}"
+CUSTOM_COMMIT="${CUSTOM_COMMIT:-}"
 MESA_REPO_SOURCE="${MESA_REPO_SOURCE:-freedesktop}"
-BUILD_VARIANT="${1:-a7xx}"
-CUSTOM_COMMIT="${2:-}"
+BUILD_VARIANT="${BUILD_VARIANT:-a7xx}"
+NAMING_FORMAT="${NAMING_FORMAT:-emulator}"
 COMMIT_HASH_SHORT=""
 MESA_VERSION=""
 MAX_RETRIES=3
@@ -34,12 +29,12 @@ RETRY_DELAY=15
 BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
 # LOGGING
-log()     { echo -e "${CYAN}[Build]${NC} $1"; }
-success() { echo -e "${GREEN}[OK]${NC} $1"; }
-warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
-info()    { echo -e "${MAGENTA}[INFO]${NC} $1"; }
-header()  { echo -e "\n${BOLD}${CYAN}=== $1 ===${NC}\n"; }
+log()     { echo "[Build] $1"; }
+success() { echo "[OK] $1"; }
+warn()    { echo "[WARN] $1"; }
+error()   { echo "[ERROR] $1"; exit 1; }
+info()    { echo "[INFO] $1"; }
+header()  { echo -e "\n=== $1 ==="; }
 
 # UTILITIES
 retry_command() {
@@ -107,79 +102,145 @@ setup_ndk() {
 
 # MESA CLONE
 clone_mesa() {
-    header "Mesa Source"
+    header "Mesa Source Selection"
 
     [ -d "$BUILD_DIR/mesa" ] && rm -rf "$BUILD_DIR/mesa"
 
-    if [ "$MESA_REPO_SOURCE" = "whitebelyash" ]; then
-        log "Cloning from Whitebelyash (Gen8 branch)..."
-        if retry_command "git clone --depth=200 --branch '$MESA_WHITEBELYASH_BRANCH' '$MESA_WHITEBELYASH' '$BUILD_DIR/mesa' 2>/dev/null" "Cloning Whitebelyash"; then
-            setup_mesa_repo
-            apply_whitebelyash_fixes
-            return
+    case "$MESA_SOURCE_TYPE" in
+        "official_release")
+            clone_official_release
+            ;;
+        "staging_branch")
+            clone_staging_branch
+            ;;
+        "custom_commit")
+            clone_custom_commit
+            ;;
+        *)
+            warn "Unknown source type: $MESA_SOURCE_TYPE, defaulting to official_release"
+            clone_official_release
+            ;;
+    esac
+
+    setup_mesa_repo
+}
+
+clone_official_release() {
+    log "Cloning official release: $OFFICIAL_VERSION"
+    
+    if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
+        warn "8gen source doesn't have official releases, cloning from GitHub..."
+        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source"
+        return
+    fi
+    
+    if ! retry_command "git clone --depth 500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning from GitLab"; then
+        warn "GitLab unavailable, trying GitHub mirror..."
+        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP_MIRROR' '$BUILD_DIR/mesa'" "Cloning from GitHub"
+    fi
+    
+    cd "$BUILD_DIR/mesa"
+    
+    if [ "$OFFICIAL_VERSION" = "custom" ]; then
+        warn "Using latest available version"
+        return
+    fi
+    
+    if git tag -l | grep -q "mesa-$OFFICIAL_VERSION"; then
+        log "Checking out version: mesa-$OFFICIAL_VERSION"
+        git checkout "mesa-$OFFICIAL_VERSION"
+    elif git tag -l | grep -q "$OFFICIAL_VERSION"; then
+        log "Checking out version: $OFFICIAL_VERSION"
+        git checkout "$OFFICIAL_VERSION"
+    else
+        warn "Version $OFFICIAL_VERSION not found, using latest stable"
+        LATEST_TAG=$(git tag -l "mesa-*" | grep -E 'mesa-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+        if [ -n "$LATEST_TAG" ]; then
+            log "Using latest stable: $LATEST_TAG"
+            git checkout "$LATEST_TAG"
         fi
-        warn "Whitebelyash unavailable, falling back to freedesktop..."
     fi
+}
 
-    log "Cloning from freedesktop.org..."
-    if retry_command "git clone --depth=500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa' 2>/dev/null" "Cloning from GitLab"; then
-        cd "$BUILD_DIR/mesa"
-        
-        # main
-        git remote set-branches origin main
-        git fetch origin main --depth=1 --update-shallow || warn "Shallow fetch failed, continuing anyway"
-        git checkout main || warn "Checkout main failed, using whatever branch was cloned"
-        git reset --hard origin/main || warn "Reset to origin/main failed"
-        git clean -fdx || true
-        
-        setup_mesa_repo
+clone_staging_branch() {
+    log "Cloning staging branch: $STAGING_BRANCH"
+    
+    if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
+        warn "8gen source doesn't have staging branches, using 8gen branch"
+        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source"
         return
     fi
-
-    warn "GitLab unavailable, trying GitHub mirror..."
-    if retry_command "git clone --depth=500 '$MESA_FREEDESKTOP_MIRROR' '$BUILD_DIR/mesa' 2>/dev/null" "Cloning from GitHub"; then
-        setup_mesa_repo
-        return
+    
+    if ! retry_command "git clone --depth 500 --branch '$STAGING_BRANCH' '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning staging branch"; then
+        warn "Failed to clone staging branch, trying main branch"
+        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning main branch"
     fi
+}
 
-    error "Failed to clone Mesa from all sources"
+clone_custom_commit() {
+    log "Cloning for custom commit"
+    
+    if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
+        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source"
+    else
+        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning for custom commit"
+    fi
+    
+    cd "$BUILD_DIR/mesa"
+    
+    if [ -n "$CUSTOM_COMMIT" ]; then
+        log "Checking out custom commit: $CUSTOM_COMMIT"
+        if git checkout "$CUSTOM_COMMIT" 2>/dev/null; then
+            success "Checked out custom commit: $CUSTOM_COMMIT"
+        else
+            warn "Could not checkout $CUSTOM_COMMIT, fetching..."
+            git fetch --depth=100 origin 2>/dev/null || true
+            if git checkout "$CUSTOM_COMMIT" 2>/dev/null; then
+                success "Checked out custom commit after fetch"
+            else
+                warn "Could not checkout $CUSTOM_COMMIT, using HEAD"
+            fi
+        fi
+    fi
 }
 
 setup_mesa_repo() {
     cd "$BUILD_DIR/mesa"
+    
+    if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
+        apply_8gen_fixes
+    fi
+    
     git config user.name "BuildUser"
     git config user.email "build@system.local"
-
-    if [ -n "$CUSTOM_COMMIT" ]; then
-        log "Checking out: $CUSTOM_COMMIT"
-        git fetch --depth=100 origin 2>/dev/null || true
-        git checkout "$CUSTOM_COMMIT" 2>/dev/null || warn "Could not checkout $CUSTOM_COMMIT, using HEAD"
-    fi
-
+    
     COMMIT_HASH_SHORT=$(git rev-parse --short HEAD)
     MESA_VERSION=$(cat VERSION 2>/dev/null || echo "unknown")
-
+    
+    if [ "$MESA_VERSION" = "unknown" ]; then
+        MESA_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+    fi
+    
     echo "$MESA_VERSION" > "$BUILD_DIR/version.txt"
+    echo "$COMMIT_HASH_SHORT" > "$BUILD_DIR/commit.txt"
     success "Mesa ready: $MESA_VERSION ($COMMIT_HASH_SHORT)"
 }
 
-apply_whitebelyash_fixes() {
-    log "Applying Whitebelyash compatibility fixes..."
+apply_8gen_fixes() {
+    log "Applying 8gen compatibility fixes..."
     cd "$BUILD_DIR/mesa"
 
-    # Fix device registration syntax
     if [ -f "src/freedreno/common/freedreno_devices.py" ]; then
         perl -i -p0e 's/(\n\s*a8xx_825)/,$1/s' src/freedreno/common/freedreno_devices.py 2>/dev/null || true
         sed -i '/REG_A8XX_GRAS_UNKNOWN_/d' src/freedreno/common/freedreno_devices.py 2>/dev/null || true
     fi
 
-    # chip check removal
     find src/freedreno/vulkan -name "*.cc" -print0 2>/dev/null | \
         xargs -0 sed -i 's/ && (pdevice->info->chip != 8)//g' 2>/dev/null || true
     find src/freedreno/vulkan -name "*.cc" -print0 2>/dev/null | \
         xargs -0 sed -i 's/ && (pdevice->info->chip == 8)//g' 2>/dev/null || true
 
-    success "Whitebelyash fixes applied"
+    success "8gen fixes applied"
 }
 
 # PREPARE BUILD DIR
@@ -195,82 +256,33 @@ prepare_build_dir() {
     success "Build directory ready - Mesa $MESA_VERSION ($COMMIT_HASH_SHORT)"
 }
 
-# PATCH SYSTEM
-apply_patch_file() {
-    local patch_path="$1"
-    local full_path="$PATCHES_DIR/$patch_path.patch"
-
-    if [ ! -f "$full_path" ]; then
-        warn "Patch not found: $patch_path"
-        return 1
-    fi
-
-    log "Applying patch: $patch_path"
-    cd "$BUILD_DIR/mesa"
-
-    if git apply "$full_path" --check 2>/dev/null; then
-        git apply "$full_path"
-        success "Patch applied: $patch_path"
-        return 0
-    fi
-
-    warn "Patch may conflict, trying 3-way merge..."
-    if git apply "$full_path" --3way 2>/dev/null; then
-        success "Patch applied with 3-way merge: $patch_path"
-        return 0
-    fi
-
-    warn "Patch failed: $patch_path"
-    return 1
-}
-
-# INLINE PATCHES
-
-# Sysmem Rendering Preference
-apply_sysmem_rendering() {
-    log "Applying sysmem rendering preference..."
-    cd "$BUILD_DIR/mesa"
-
-    local file="src/freedreno/vulkan/tu_device.cc"
+# PATCH APPLICATION
+apply_patch() {
+    local patch_name="$1"
+    local patch_file="$PATCHES_DIR/$patch_name"
     
-    if [ ! -f "$file" ]; then
-        warn "Target file not found: $file"
+    if [ ! -f "$patch_file" ]; then
+        warn "Patch not found: $patch_file"
         return 1
     fi
-
-    if grep -q "Build: Sysmem Rendering" "$file" 2>/dev/null; then
-        info "Sysmem rendering already applied"
-        return 0
-    fi
-
-    sed -i '1i\/* Build: Sysmem Rendering Preference */' "$file"
-
-    if grep -q "use_bypass" "$file"; then
-        sed -i 's/use_bypass = false/use_bypass = true/g' "$file" 2>/dev/null || true
-    fi
-
-    success "Sysmem rendering applied"
-    return 0
-}
-
-# Memory Optimization
-apply_memory_optimization() {
-    log "Applying memory optimization..."
+    
+    log "Applying patch: $patch_name"
     cd "$BUILD_DIR/mesa"
-
-    local changes=0
-
-    if [ -f "src/freedreno/vulkan/tu_query.cc" ]; then
-        sed -i 's/tu_bo_init_new_cached/tu_bo_init_new/g' src/freedreno/vulkan/tu_query.cc
-        ((changes++))
+    
+    if git apply "$patch_file" --check 2>/dev/null; then
+        git apply "$patch_file"
+        success "Patch applied: $patch_name"
+        return 0
+    else
+        warn "Patch may not apply cleanly, trying 3-way merge..."
+        if git apply "$patch_file" --3way 2>/dev/null; then
+            success "Patch applied with 3-way merge: $patch_name"
+            return 0
+        else
+            warn "Failed to apply patch: $patch_name"
+            return 1
+        fi
     fi
-
-    if [ -f "src/freedreno/vulkan/tu_device.cc" ]; then
-        sed -i 's/has_cached_coherent_memory = true/has_cached_coherent_memory = false/g' src/freedreno/vulkan/tu_device.cc
-        ((changes++))
-    fi
-
-    [ $changes -gt 0 ] && success "Memory optimization applied ($changes files)" || warn "No changes made"
 }
 
 # BUILD SYSTEM
@@ -367,6 +379,76 @@ run_ninja_build() {
     success "Build complete"
 }
 
+extract_vulkan_version() {
+    cd "$BUILD_DIR/mesa"
+    
+    local vulkan_version="1.3.250"
+    
+    if [ -f "src/vulkan/util/vk_common.h" ]; then
+        local vk_header_version=$(grep -o 'VK_HEADER_VERSION [0-9]*' src/vulkan/util/vk_common.h 2>/dev/null | head -1 | awk '{print $2}')
+        if [ -n "$vk_header_version" ]; then
+            local major=$((vk_header_version / 1000000))
+            local minor=$(((vk_header_version % 1000000) / 1000))
+            local patch=$((vk_header_version % 1000))
+            vulkan_version="$major.$minor.$patch"
+        fi
+    elif [ -f "include/vulkan/vulkan_core.h" ]; then
+        local vk_major=$(grep -o '#define VK_VERSION_MAJOR.*' include/vulkan/vulkan_core.h 2>/dev/null | head -1 | awk '{print $3}')
+        local vk_minor=$(grep -o '#define VK_VERSION_MINOR.*' include/vulkan/vulkan_core.h 2>/dev/null | head -1 | awk '{print $3}')
+        local vk_patch=$(grep -o '#define VK_VERSION_PATCH.*' include/vulkan/vulkan_core.h 2>/dev/null | head -1 | awk '{print $3}')
+        if [ -n "$vk_major" ] && [ -n "$vk_minor" ]; then
+            vulkan_version="$vk_major.$vk_minor.${vk_patch:-0}"
+        fi
+    fi
+    
+    echo "$vulkan_version"
+}
+
+generate_filename() {
+    local variant_name="$1"
+    local mesa_version="$2"
+    local commit_short="$3"
+    local naming_format="$4"
+    
+    local clean_version=$(echo "$mesa_version" | sed 's/[^0-9.]//g' | sed 's/\.$//g')
+    
+    while [[ "$clean_version" == *. ]]; do
+        clean_version="${clean_version%.}"
+    done
+    
+    if [ -z "$clean_version" ] || [ "$clean_version" = "unknown" ]; then
+        clean_version=$(date +'%Y%m%d')
+    fi
+    
+    case "$naming_format" in
+        "emulator")
+            if [ "$variant_name" = "gen8" ]; then
+                echo "Turnip-Gen8-${clean_version}"
+            else
+                echo "Turnip-${clean_version}"
+            fi
+            ;;
+        "simple")
+            if [ "$variant_name" = "gen8" ]; then
+                echo "Turnip-Gen8-${clean_version}"
+            else
+                echo "Turnip-A7xx-${clean_version}"
+            fi
+            ;;
+        "detailed")
+            local date_part=$(date +'%Y%m%d')
+            if [ "$variant_name" = "gen8" ]; then
+                echo "Turnip-Gen8-Mesa${clean_version}-${date_part}"
+            else
+                echo "Turnip-A7xx-Mesa${clean_version}-${date_part}"
+            fi
+            ;;
+        *)
+            echo "turnip-${variant_name}-${clean_version}-${commit_short}"
+            ;;
+    esac
+}
+
 package_build() {
     local variant_name="$1"
     local SO_FILE="build-release/src/freedreno/vulkan/libvulkan_freedreno.so"
@@ -375,40 +457,55 @@ package_build() {
         error "Build output not found: $SO_FILE"
     fi
 
-    log "Packaging $variant_name..."
+    log "Packaging driver..."
     cd "$BUILD_DIR"
 
-    cp "mesa/$SO_FILE" libvulkan_freedreno.so
-    patchelf --set-soname "vulkan.ad07xx.so" libvulkan_freedreno.so
-    mv libvulkan_freedreno.so vulkan.ad07xx.so
+    local TEMP_DIR="driver_temp"
+    rm -rf "$TEMP_DIR"
+    mkdir -p "$TEMP_DIR"
 
-    # source
-    local FILENAME
-    if [ "$MESA_REPO_SOURCE" = "whitebelyash" ]; then
-        FILENAME="Turnip-driver-${variant_name}-${MESA_VERSION}-${COMMIT_HASH_SHORT}"
-    else
-        FILENAME="Turnip-driver-${MESA_VERSION}-${COMMIT_HASH_SHORT}"
-    fi
-
-    cat <<EOF > meta.json
+    cp "mesa/$SO_FILE" "$TEMP_DIR/libvulkan.adreno.so"
+    
+    local VULKAN_VERSION=$(extract_vulkan_version)
+    
+    local DRIVER_NAME=$(generate_filename "$variant_name" "$MESA_VERSION" "$COMMIT_HASH_SHORT" "$NAMING_FORMAT")
+    
+    cat <<EOF > "$TEMP_DIR/meta.json"
 {
     "schemaVersion": 1,
-    "name": "Turnip-driver-${variant_name}",
-    "description": "Mesa ${MESA_VERSION} - ${variant_name} variant - Built: ${BUILD_DATE}",
-    "author": "Freedreno/whitebelyash",
+    "name": "Mesa Turnip Driver",
+    "description": "Mesa ${MESA_VERSION} Built: ${BUILD_DATE}",
+    "author": "Blue",
     "packageVersion": "1",
-    "vendor": "Meaa",
-    "driverVersion": "${MESA_VERSION}",
-    "minApi": 27,
-    "libraryName": "vulkan.ad07xx.so"
+    "vendor": "Mesa3D",
+    "driverVersion": "Vulkan ${VULKAN_VERSION}",
+    "minApi": ${API_LEVEL},
+    "libraryName": "libvulkan.adreno.so"
 }
 EOF
 
-    zip -9 "${FILENAME}.zip" vulkan.ad07xx.so meta.json
-    rm -f vulkan.ad07xx.so meta.json
+    cat <<EOF > "$TEMP_DIR/build_info.txt"
+Build Date: ${BUILD_DATE}
+Mesa Version: ${MESA_VERSION}
+Vulkan Version: ${VULKAN_VERSION}
+Commit Hash: ${COMMIT_HASH_SHORT}
+Source Repository: ${MESA_REPO_SOURCE}
+Source Type: ${MESA_SOURCE_TYPE}
+Build Variant: ${variant_name}
+Android API: ${API_LEVEL}
+NDK Version: ${NDK_VERSION}
+EOF
 
-    local size=$(du -h "${FILENAME}.zip" | cut -f1)
-    success "Created: ${FILENAME}.zip ($size)"
+    cd "$TEMP_DIR"
+    zip -9 "../${DRIVER_NAME}.zip" *
+    cd ..
+    
+    rm -rf "$TEMP_DIR"
+    
+    local size=$(du -h "${DRIVER_NAME}.zip" | cut -f1)
+    success "Created driver: ${DRIVER_NAME}.zip ($size)"
+    info "Driver name: $DRIVER_NAME"
+    info "Vulkan Version: ${VULKAN_VERSION}"
 }
 
 perform_build() {
@@ -423,7 +520,6 @@ perform_build() {
     package_build "$variant_name"
 }
 
-# VARIANT BUILDERS
 reset_mesa() {
     log "Resetting Mesa source..."
     cd "$BUILD_DIR/mesa"
@@ -432,29 +528,36 @@ reset_mesa() {
 }
 
 build_a7xx() {
-    header "A7XX BUILD (Freedesktop)"
+    header "A7XX Build"
     reset_mesa
-    apply_memory_optimization
-    apply_sysmem_rendering
-  # apply_patch_file ""
-     
+    
+    # Apply patches
+    apply_patch "memory_optimization.patch"
+    apply_patch "sysmem_rendering.patch"
+    apply_patch "compatibility_fixes.patch"
+    
     perform_build "a7xx"
 }
 
 build_gen8() {
-    header "GEN8 BUILD (Whitebelyash)"
+    header "Gen8 Build"
     reset_mesa
-    apply_sysmem_rendering
+    
+    # Apply patches
+    apply_patch "sysmem_rendering.patch"
+    apply_patch "compatibility_fixes.patch"
+    
     perform_build "Gen8"
 }
 
-# MAIN
 main() {
     echo ""
-    echo ""
-    info "Variant: $BUILD_VARIANT"
+    info "Turnip Driver Build System"
+    echo "--------------------------"
+    info "Build Variant: $BUILD_VARIANT"
     info "Mesa Source: $MESA_REPO_SOURCE"
-    info "Date: $BUILD_DATE"
+    info "Source Type: $MESA_SOURCE_TYPE"
+    info "Build Date: $BUILD_DATE"
     echo ""
 
     check_dependencies
@@ -462,21 +565,15 @@ main() {
 
     case "$BUILD_VARIANT" in
         a7xx)
-            if [ "$MESA_REPO_SOURCE" != "freedesktop" ]; then
-                warn "a7xx is recommended for freedesktop source"
-            fi
             build_a7xx
             ;;
         gen8)
-            if [ "$MESA_REPO_SOURCE" != "whitebelyash" ]; then
-                warn "gen8 is recommended for whitebelyash source"
-            fi
             build_gen8
             ;;
         *)
             warn "Unknown variant: $BUILD_VARIANT"
-            info "Available: a7xx (freedesktop), gen8 (whitebelyash)"
-            if [ "$MESA_REPO_SOURCE" = "whitebelyash" ]; then
+            info "Available: a7xx, gen8"
+            if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
                 warn "Defaulting to gen8..."
                 build_gen8
             else
@@ -487,12 +584,12 @@ main() {
     esac
 
     echo ""
-    success "Build Complete"
+    success "Build Completed Successfully!"
     echo ""
-
+    
     if ls "$BUILD_DIR"/*.zip 1>/dev/null 2>&1; then
         info "Output files:"
-        ls -lh "$BUILD_DIR"/*.zip
+        ls -lh "$BUILD_DIR"/*.zip | awk '{print "  " $9 " (" $5 ")"}'
     else
         warn "No output files found"
         exit 1
