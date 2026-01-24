@@ -2,7 +2,9 @@
 
 set -o pipefail
 
-# CONFIG
+# ============================================
+# CONFIGURATION
+# ============================================
 BUILD_DIR="$(pwd)/build_workspace"
 PATCHES_DIR="$(pwd)/patches"
 NDK_VERSION="${NDK_VERSION:-android-ndk-r30}"
@@ -22,13 +24,17 @@ CUSTOM_COMMIT="${CUSTOM_COMMIT:-}"
 MESA_REPO_SOURCE="${MESA_REPO_SOURCE:-freedesktop}"
 BUILD_VARIANT="${BUILD_VARIANT:-a7xx}"
 NAMING_FORMAT="${NAMING_FORMAT:-emulator}"
+
+# Build Variables
 COMMIT_HASH_SHORT=""
 MESA_VERSION=""
 MAX_RETRIES=3
 RETRY_DELAY=15
 BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S')
 
-# LOGGING
+# ============================================
+# LOGGING FUNCTIONS
+# ============================================
 log() { echo "[Build] $1"; }
 success() { echo "[OK] $1"; }
 warn() { echo "[WARN] $1"; }
@@ -36,7 +42,9 @@ error() { echo "[ERROR] $1"; exit 1; }
 info() { echo "[INFO] $1"; }
 header() { echo -e "\n=== $1 ==="; }
 
-# UTILITIES
+# ============================================
+# UTILITY FUNCTIONS
+# ============================================
 retry_command() {
     local cmd="$1"
     local description="$2"
@@ -72,7 +80,9 @@ check_dependencies() {
     success "All dependencies found"
 }
 
+# ============================================
 # NDK SETUP
+# ============================================
 setup_ndk() {
     header "NDK Setup"
 
@@ -91,16 +101,18 @@ setup_ndk() {
     log "Downloading NDK $NDK_VERSION..."
     local ndk_url="https://dl.google.com/android/repository/${NDK_VERSION}-linux.zip"
 
-    if ! retry_command "curl -sL '$ndk_url' -o core.zip" "Downloading NDK"; then
+    if ! retry_command "curl -sL '$ndk_url' -o ndk.zip" "Downloading NDK"; then
         error "Failed to download NDK"
     fi
 
-    unzip -q core.zip && rm -f core.zip
+    unzip -q ndk.zip && rm -f ndk.zip
     export ANDROID_NDK_HOME="$BUILD_DIR/$NDK_VERSION"
     success "NDK installed: $ANDROID_NDK_HOME"
 }
 
-# MESA CLONE
+# ============================================
+# MESA CLONE FUNCTIONS
+# ============================================
 clone_mesa() {
     header "Mesa Source Selection"
 
@@ -130,13 +142,13 @@ clone_official_release() {
     
     if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
         warn "8gen source doesn't have official releases, cloning from GitHub..."
-        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source"
+        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source" || error "Failed to clone 8gen source"
         return
     fi
     
     if ! retry_command "git clone --depth 500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning from GitLab"; then
         warn "GitLab unavailable, trying GitHub mirror..."
-        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP_MIRROR' '$BUILD_DIR/mesa'" "Cloning from GitHub"
+        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP_MIRROR' '$BUILD_DIR/mesa'" "Cloning from GitHub" || error "Failed to clone Mesa"
     fi
     
     cd "$BUILD_DIR/mesa"
@@ -146,15 +158,15 @@ clone_official_release() {
         return
     fi
     
-    if git tag -l | grep -q "mesa-$OFFICIAL_VERSION"; then
+    if git tag -l | grep -q "^mesa-${OFFICIAL_VERSION}$"; then
         log "Checking out version: mesa-$OFFICIAL_VERSION"
         git checkout "mesa-$OFFICIAL_VERSION"
-    elif git tag -l | grep -q "$OFFICIAL_VERSION"; then
+    elif git tag -l | grep -q "^${OFFICIAL_VERSION}$"; then
         log "Checking out version: $OFFICIAL_VERSION"
         git checkout "$OFFICIAL_VERSION"
     else
         warn "Version $OFFICIAL_VERSION not found, using latest stable"
-        LATEST_TAG=$(git tag -l "mesa-*" | grep -E 'mesa-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+        LATEST_TAG=$(git tag -l "mesa-*" | grep -E '^mesa-[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
         if [ -n "$LATEST_TAG" ]; then
             log "Using latest stable: $LATEST_TAG"
             git checkout "$LATEST_TAG"
@@ -167,13 +179,13 @@ clone_staging_branch() {
     
     if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
         warn "8gen source doesn't have staging branches, using 8gen branch"
-        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source"
+        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source" || error "Failed to clone 8gen source"
         return
     fi
     
     if ! retry_command "git clone --depth 500 --branch '$STAGING_BRANCH' '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning staging branch"; then
         warn "Failed to clone staging branch, trying main branch"
-        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning main branch"
+        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning main branch" || error "Failed to clone Mesa"
     fi
 }
 
@@ -181,25 +193,25 @@ clone_custom_commit() {
     log "Cloning for custom commit"
     
     if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
-        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source"
+        retry_command "git clone --depth=200 --branch '$MESA_8GEN_BRANCH' '$MESA_8GEN_SOURCE' '$BUILD_DIR/mesa'" "Cloning 8gen source" || error "Failed to clone 8gen source"
     else
-        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning for custom commit"
+        retry_command "git clone --depth 500 '$MESA_FREEDESKTOP' '$BUILD_DIR/mesa'" "Cloning for custom commit" || error "Failed to clone Mesa"
     fi
     
     cd "$BUILD_DIR/mesa"
     
     if [ -n "$CUSTOM_COMMIT" ]; then
         log "Checking out custom commit: $CUSTOM_COMMIT"
-        if git checkout "$CUSTOM_COMMIT" 2>/dev/null; then
-            success "Checked out custom commit: $CUSTOM_COMMIT"
-        else
-            warn "Could not checkout $CUSTOM_COMMIT, fetching..."
-            git fetch --depth=100 origin 2>/dev/null || true
-            if git checkout "$CUSTOM_COMMIT" 2>/dev/null; then
-                success "Checked out custom commit after fetch"
-            else
+        if ! git checkout "$CUSTOM_COMMIT" 2>/dev/null; then
+            warn "Could not checkout $CUSTOM_COMMIT, fetching more history..."
+            git fetch --depth=500 origin 2>/dev/null || true
+            if ! git checkout "$CUSTOM_COMMIT" 2>/dev/null; then
                 warn "Could not checkout $CUSTOM_COMMIT, using HEAD"
+            else
+                success "Checked out custom commit after fetch"
             fi
+        else
+            success "Checked out custom commit: $CUSTOM_COMMIT"
         fi
     fi
 }
@@ -213,8 +225,8 @@ setup_mesa_repo() {
     COMMIT_HASH_SHORT=$(git rev-parse --short HEAD)
     MESA_VERSION=$(cat VERSION 2>/dev/null || echo "unknown")
     
-    if [ "$MESA_VERSION" = "unknown" ]; then
-        MESA_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
+    if [ "$MESA_VERSION" = "unknown" ] || [ -z "$MESA_VERSION" ]; then
+        MESA_VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^mesa-//' || echo "unknown")
     fi
     
     echo "$MESA_VERSION" > "$BUILD_DIR/version.txt"
@@ -222,7 +234,9 @@ setup_mesa_repo() {
     success "Mesa ready: $MESA_VERSION ($COMMIT_HASH_SHORT)"
 }
 
-# PREPARE BUILD DIR
+# ============================================
+# BUILD DIRECTORY PREPARATION
+# ============================================
 prepare_build_dir() {
     header "Preparing Build Directory"
     mkdir -p "$BUILD_DIR"
@@ -235,7 +249,9 @@ prepare_build_dir() {
     success "Build directory ready - Mesa $MESA_VERSION ($COMMIT_HASH_SHORT)"
 }
 
-# PATCH SYSTEM - IMPROVED
+# ============================================
+# PATCH SYSTEM
+# ============================================
 apply_patch_file() {
     local patch_name="$1"
     local patch_file="$PATCHES_DIR/$patch_name"
@@ -248,15 +264,7 @@ apply_patch_file() {
     log "Applying patch: $patch_name"
     cd "$BUILD_DIR/mesa"
     
-    # Backup original files mentioned in patch
-    local files_in_patch=$(grep -E '^--- a/' "$patch_file" | sed 's/^--- a\///' | head -5)
-    for file in $files_in_patch; do
-        if [ -f "$file" ]; then
-            cp "$file" "$file.backup" 2>/dev/null || true
-        fi
-    done
-    
-    # Try to apply patch
+    # Try standard git apply
     if git apply --check "$patch_file" 2>/dev/null; then
         if git apply "$patch_file"; then
             success "Patch applied successfully: $patch_name"
@@ -271,92 +279,86 @@ apply_patch_file() {
         return 0
     fi
     
-    # Try manual patching as last resort
-    warn "Git apply failed, attempting manual patch..."
-    
-    # Extract patch content and apply manually
-    local patch_content=$(cat "$patch_file")
-    
-    # Simple sed-based patching for common changes
-    if echo "$patch_content" | grep -q "tu_bo_init_new_cached"; then
-        find src/freedreno/vulkan -name "*.cc" -exec sed -i 's/tu_bo_init_new_cached/tu_bo_init_new/g' {} \; 2>/dev/null || true
-        success "Applied memory optimization manually"
-        return 0
-    fi
-    
-    warn "Patch failed: $patch_name"
+    warn "Patch could not be applied: $patch_name"
     return 1
 }
 
-# DIRECT CODE MODIFICATIONS - RELIABLE
+# ============================================
+# DIRECT CODE MODIFICATIONS
+# ============================================
 apply_direct_modifications() {
     header "Applying Direct Modifications"
     
     cd "$BUILD_DIR/mesa"
     
-    # 1. Memory optimization
+    # 1. Memory optimization - tu_query.cc
     log "Applying memory optimization..."
     if [ -f "src/freedreno/vulkan/tu_query.cc" ]; then
-        sed -i 's/tu_bo_init_new_cached/tu_bo_init_new/g' src/freedreno/vulkan/tu_query.cc
-        success "Memory optimization applied to tu_query.cc"
+        if grep -q "tu_bo_init_new_cached" "src/freedreno/vulkan/tu_query.cc"; then
+            sed -i 's/tu_bo_init_new_cached/tu_bo_init_new/g' src/freedreno/vulkan/tu_query.cc
+            success "Memory optimization applied to tu_query.cc"
+        else
+            info "tu_query.cc: No cached memory calls found (already optimized or different version)"
+        fi
     fi
     
+    # 2. Memory optimization - tu_device.cc
     if [ -f "src/freedreno/vulkan/tu_device.cc" ]; then
-        sed -i 's/has_cached_coherent_memory = true/has_cached_coherent_memory = false/g' src/freedreno/vulkan/tu_device.cc
-        success "Memory optimization applied to tu_device.cc"
+        if grep -q "has_cached_coherent_memory = true" "src/freedreno/vulkan/tu_device.cc"; then
+            sed -i 's/has_cached_coherent_memory = true/has_cached_coherent_memory = false/g' src/freedreno/vulkan/tu_device.cc
+            success "Memory optimization applied to tu_device.cc"
+        else
+            info "tu_device.cc: cached_coherent_memory setting not found"
+        fi
     fi
     
-    # 2. Sysmem rendering preference
+    # 3. Sysmem rendering preference
     log "Applying sysmem rendering preference..."
-    local tu_device_file="src/freedreno/vulkan/tu_device.cc"
-    if [ -f "$tu_device_file" ]; then
-        # First, check if the line exists and modify it
-        if grep -q "use_bypass = false" "$tu_device_file"; then
-            sed -i 's/use_bypass = false/use_bypass = true/g' "$tu_device_file"
+    if [ -f "src/freedreno/vulkan/tu_device.cc" ]; then
+        if grep -q "use_bypass = false" "src/freedreno/vulkan/tu_device.cc"; then
+            sed -i 's/use_bypass = false/use_bypass = true/g' src/freedreno/vulkan/tu_device.cc
             success "Sysmem rendering enabled"
         else
-            # Add the modification if line doesn't exist
-            sed -i '/bool use_bypass = false/!b;n;s/false/true/' "$tu_device_file" 2>/dev/null || true
+            info "tu_device.cc: use_bypass setting not found"
         fi
     fi
     
-    # 3. Library name modification for compatibility
-    log "Preparing library name..."
-    if [ -f "src/freedreno/vulkan/meson.build" ]; then
-        sed -i 's/libvulkan_freedreno/libvulkan.adreno/g' src/freedreno/vulkan/meson.build 2>/dev/null || true
-    fi
+    # NOTE: Do NOT modify meson.build library names!
+    # The library renaming is done in package_build() when copying files
     
-    success "Direct modifications applied"
+    success "Direct modifications completed"
 }
 
+# ============================================
 # 8GEN SPECIFIC FIXES
+# ============================================
 apply_8gen_fixes() {
-    if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
-        log "Applying 8gen-specific fixes..."
-        cd "$BUILD_DIR/mesa"
-        
-        # Fix device registration
-        if [ -f "src/freedreno/common/freedreno_devices.py" ]; then
-            # Fix a8xx_825 registration
-            sed -i '/a8xx_825 =/d' src/freedreno/common/freedreno_devices.py 2>/dev/null || true
-            echo "    a8xx_825 = AdrenoInfo('a8xx_825', 'Adreno 8xx', 8, 825)," >> src/freedreno/common/freedreno_devices.py 2>/dev/null || true
-        fi
-        
-        # Remove chip checks that might cause issues
-        find src/freedreno/vulkan -name "*.cc" -exec sed -i 's/ && (pdevice->info->chip != 8)//g' {} \; 2>/dev/null || true
-        find src/freedreno/vulkan -name "*.cc" -exec sed -i 's/ && (pdevice->info->chip == 8)//g' {} \; 2>/dev/null || true
-        
-        success "8gen fixes applied"
+    if [ "$MESA_REPO_SOURCE" != "8gen" ]; then
+        return
     fi
+    
+    header "Applying 8gen-specific fixes"
+    cd "$BUILD_DIR/mesa"
+    
+    # Fix potential chip detection issues
+    if [ -f "src/freedreno/vulkan/tu_device.cc" ]; then
+        # Remove restrictive chip checks if present
+        sed -i 's/ && (pdevice->info->chip != 8)//g' src/freedreno/vulkan/tu_device.cc 2>/dev/null || true
+        sed -i 's/ && (pdevice->info->chip == 8)//g' src/freedreno/vulkan/tu_device.cc 2>/dev/null || true
+    fi
+    
+    success "8gen fixes applied"
 }
 
+# ============================================
 # BUILD SYSTEM
+# ============================================
 create_cross_file() {
     local NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
     local CROSS_FILE="$BUILD_DIR/cross_build"
     local NATIVE_FILE="$BUILD_DIR/native_build"
 
-    cat <<EOF > "$CROSS_FILE"
+    cat > "$CROSS_FILE" << EOF
 [binaries]
 ar = '$NDK_BIN/llvm-ar'
 c = ['ccache', '$NDK_BIN/aarch64-linux-android${API_LEVEL}-clang']
@@ -373,11 +375,11 @@ cpu = 'armv8'
 endian = 'little'
 
 [built-in options]
-c_args = ['-O3', '-DNDEBUG', '-w', '-Wno-error']
-cpp_args = ['-O3', '-DNDEBUG', '-w', '-Wno-error']
+c_args = ['-O3', '-DNDEBUG', '-w']
+cpp_args = ['-O3', '-DNDEBUG', '-w']
 EOF
 
-    cat <<EOF > "$NATIVE_FILE"
+    cat > "$NATIVE_FILE" << EOF
 [binaries]
 c = ['ccache', 'clang']
 cpp = ['ccache', 'clang++']
@@ -392,9 +394,11 @@ run_meson_setup() {
     local log_file="$BUILD_DIR/meson_${variant_name}.log"
 
     log "Running Meson setup for $variant_name..."
+    
+    # Clean previous build
     rm -rf build-release
 
-    # Prepare build options
+    # Meson build options
     local build_options=(
         "--cross-file" "$BUILD_DIR/cross_build"
         "--native-file" "$BUILD_DIR/native_build"
@@ -422,7 +426,7 @@ run_meson_setup() {
         "-Dbuild-tests=false"
     )
 
-    if ! meson setup build-release "${build_options[@]}" &> "$log_file"; then
+    if ! meson setup build-release "${build_options[@]}" 2>&1 | tee "$log_file"; then
         error "Meson setup failed. Check: $log_file"
     fi
 
@@ -436,35 +440,30 @@ run_ninja_build() {
 
     log "Building with Ninja ($cores cores)..."
 
-    # First, try to build only the driver
-    if ! ninja -C build-release -j"$cores" src/freedreno/vulkan/libvulkan_freedreno.so &> "$log_file"; then
-        # If that fails, try building everything
-        warn "Driver-only build failed, trying full build..."
-        if ! ninja -C build-release -j"$cores" &> "$log_file"; then
-            echo ""
-            warn "Build failed. Last 50 lines:"
-            tail -50 "$log_file"
-            error "Ninja build failed for $variant_name"
-        fi
+    if ! ninja -C build-release -j"$cores" 2>&1 | tee "$log_file"; then
+        echo ""
+        warn "Build failed. Last 100 lines of log:"
+        tail -100 "$log_file"
+        error "Ninja build failed for $variant_name"
     fi
 
     success "Build complete"
 }
 
+# ============================================
+# PACKAGING
+# ============================================
 extract_vulkan_version() {
     cd "$BUILD_DIR/mesa"
     
     local vulkan_version="1.3.250"
     
-    # Try multiple locations for Vulkan version
-    for file in "src/vulkan/util/vk_common.h" "include/vulkan/vulkan_core.h" "include/vulkan/vulkan.h"; do
+    # Try to extract from headers
+    for file in "src/vulkan/util/vk_common.h" "include/vulkan/vulkan_core.h"; do
         if [ -f "$file" ]; then
             local vk_header=$(grep -o 'VK_HEADER_VERSION [0-9]*' "$file" 2>/dev/null | head -1 | awk '{print $2}')
-            if [ -n "$vk_header" ]; then
-                local major=$((vk_header / 1000000))
-                local minor=$(((vk_header % 1000000) / 1000))
-                local patch=$((vk_header % 1000))
-                vulkan_version="$major.$minor.$patch"
+            if [ -n "$vk_header" ] && [ "$vk_header" -gt 0 ] 2>/dev/null; then
+                vulkan_version="1.3.$vk_header"
                 break
             fi
         fi
@@ -476,14 +475,10 @@ extract_vulkan_version() {
 generate_filename() {
     local variant_name="$1"
     local mesa_version="$2"
-    local commit_short="$3"
-    local naming_format="$4"
+    local naming_format="$3"
     
+    # Clean version string
     local clean_version=$(echo "$mesa_version" | sed 's/[^0-9.]//g' | sed 's/\.$//g')
-    
-    while [[ "$clean_version" == *. ]]; do
-        clean_version="${clean_version%.}"
-    done
     
     if [ -z "$clean_version" ] || [ "$clean_version" = "unknown" ]; then
         clean_version=$(date +'%Y%m%d')
@@ -526,22 +521,24 @@ package_build() {
     mkdir -p "$TEMP_DIR"
 
     # Copy and rename the library
-    cp "$SO_FILE" "$TEMP_DIR/libvulkan.adreno.so"
+    cp "mesa/$SO_FILE" "$TEMP_DIR/libvulkan.adreno.so"
     
     # Set proper soname
     patchelf --set-soname "libvulkan.adreno.so" "$TEMP_DIR/libvulkan.adreno.so" 2>/dev/null || true
     
+    # Strip debug symbols to reduce size
+    "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" "$TEMP_DIR/libvulkan.adreno.so" 2>/dev/null || true
+    
     local VULKAN_VERSION=$(extract_vulkan_version)
+    local DRIVER_NAME=$(generate_filename "$variant_name" "$MESA_VERSION" "$NAMING_FORMAT")
     
-    local DRIVER_NAME=$(generate_filename "$variant_name" "$MESA_VERSION" "$COMMIT_HASH_SHORT" "$NAMING_FORMAT")
-    
-    # Create meta.json with proper format
-    cat <<EOF > "$TEMP_DIR/meta.json"
+    # Create meta.json
+    cat > "$TEMP_DIR/meta.json" << EOF
 {
     "schemaVersion": 1,
     "name": "Mesa Turnip Driver",
-    "description": "Mesa ${MESA_VERSION} Built: ${BUILD_DATE}",
-    "author": "Blue",
+    "description": "Mesa ${MESA_VERSION} - Built: ${BUILD_DATE}",
+    "author": "Mesa3D",
     "packageVersion": "1",
     "vendor": "Mesa3D",
     "driverVersion": "Vulkan ${VULKAN_VERSION}",
@@ -551,9 +548,9 @@ package_build() {
 EOF
 
     # Create build info
-    cat <<EOF > "$TEMP_DIR/build_info.txt"
-Build Information:
------------------
+    cat > "$TEMP_DIR/build_info.txt" << EOF
+Build Information
+=================
 Build Date: ${BUILD_DATE}
 Mesa Version: ${MESA_VERSION}
 Vulkan Version: ${VULKAN_VERSION}
@@ -561,11 +558,12 @@ Commit: ${COMMIT_HASH_SHORT}
 Source: ${MESA_REPO_SOURCE}
 Variant: ${variant_name}
 Android API: ${API_LEVEL}
+NDK Version: ${NDK_VERSION}
 EOF
 
     # Create ZIP
     cd "$TEMP_DIR"
-    zip -9 "../${DRIVER_NAME}.zip" *
+    zip -9 "../${DRIVER_NAME}.zip" ./*
     cd ..
     
     # Cleanup
@@ -575,6 +573,9 @@ EOF
     success "Created driver package: ${DRIVER_NAME}.zip ($size)"
 }
 
+# ============================================
+# BUILD VARIANTS
+# ============================================
 perform_build() {
     local variant_name="$1"
 
@@ -598,17 +599,12 @@ build_a7xx() {
     header "A7XX Build"
     reset_mesa
     
-    # Apply direct modifications (reliable)
+    # Apply modifications
     apply_direct_modifications
     
     # Try to apply patches if they exist
-    if [ -f "$PATCHES_DIR/memory_optimization.patch" ]; then
-        apply_patch_file "memory_optimization.patch"
-    fi
-    
-    if [ -f "$PATCHES_DIR/sysmem_rendering.patch" ]; then
-        apply_patch_file "sysmem_rendering.patch"
-    fi
+    [ -f "$PATCHES_DIR/memory_optimization.patch" ] && apply_patch_file "memory_optimization.patch"
+    [ -f "$PATCHES_DIR/sysmem_rendering.patch" ] && apply_patch_file "sysmem_rendering.patch"
     
     perform_build "a7xx"
 }
@@ -620,18 +616,25 @@ build_gen8() {
     # Apply 8gen fixes first
     apply_8gen_fixes
     
-    # Apply direct modifications
+    # Apply standard modifications
     apply_direct_modifications
     
     perform_build "gen8"
 }
 
+# ============================================
+# MAIN
+# ============================================
 main() {
     echo ""
-    info "Turnip Driver Build System"
+    echo "========================================"
+    echo "    Turnip Driver Build System"
+    echo "========================================"
+    echo ""
     info "Build Variant: $BUILD_VARIANT"
     info "Mesa Source: $MESA_REPO_SOURCE"
     info "Source Type: $MESA_SOURCE_TYPE"
+    info "Naming Format: $NAMING_FORMAT"
     echo ""
 
     check_dependencies
@@ -646,9 +649,9 @@ main() {
             ;;
         *)
             warn "Unknown variant: $BUILD_VARIANT"
-            info "Available: a7xx, gen8"
+            info "Available variants: a7xx, gen8"
             if [ "$MESA_REPO_SOURCE" = "8gen" ]; then
-                warn "Defaulting to gen8..."
+                warn "Defaulting to gen8 for 8gen source..."
                 build_gen8
             else
                 warn "Defaulting to a7xx..."
@@ -658,12 +661,16 @@ main() {
     esac
 
     echo ""
+    echo "========================================"
     success "Build Completed Successfully!"
+    echo "========================================"
     echo ""
     
     if ls "$BUILD_DIR"/*.zip 1>/dev/null 2>&1; then
         info "Output files:"
-        ls -lh "$BUILD_DIR"/*.zip | awk '{print "  " $9 " (" $5 ")"}'
+        ls -lh "$BUILD_DIR"/*.zip | while read -r line; do
+            echo "  $line"
+        done
     else
         warn "No output files found"
         exit 1
