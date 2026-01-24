@@ -43,6 +43,7 @@ on:
         default: "freedesktop"
         options:
           - freedesktop
+          - lfdevs
           - 8gen
       
       build_variant:
@@ -192,7 +193,7 @@ jobs:
           name: "Turnip Driver ${{ steps.gen_name.outputs.mesa_version }}"
           tag_name: ${{ steps.release_info.outputs.tag }}
           body: |
-            ## Turnip Vulkan Driver
+            ## Turnip Driver
             
             **Mesa Version:** ${{ steps.gen_name.outputs.mesa_version }}
             **Build Date:** ${{ steps.release_info.outputs.date }} ${{ steps.release_info.outputs.time }}
