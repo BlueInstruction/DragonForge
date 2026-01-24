@@ -4,7 +4,7 @@ set -o pipefail
 
 BUILD_DIR="$(pwd)/build_workspace"
 PATCHES_DIR="$(pwd)/patches"
-NDK_VERSION="${NDK_VERSION:-android-ndk-r30}"
+NDK_VERSION="${NDK_VERSION:-android-ndk-r29}"
 API_LEVEL="${API_LEVEL:-35}"
 
 MESA_FREEDESKTOP="https://gitlab.freedesktop.org/mesa/mesa.git"
@@ -537,7 +537,7 @@ package_build() {
     "packageVersion": "1",
     "vendor": "Mesa3D",
     "driverVersion": "Vulkan ${VULKAN_VERSION}",
-    "minApi": ${API_LEVEL},
+    "minApi": 27,
     "libraryName": "libvulkan_freedreno.so"
 }
 EOF
