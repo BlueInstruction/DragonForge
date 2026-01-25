@@ -1,15 +1,15 @@
-name: VKD3D-Proton Arm64ec 
+name: build vkd3d-proton arm64ec
 
 on:
   workflow_dispatch:
     inputs:
-      VERSION:
-        description: "Version"
+      version:
+        description: "version (empty = latest)"
         required: false
         default: ""
   workflow_call:
     inputs:
-      VERSION:
+      version:
         type: string
         required: false
         default: ""
@@ -22,99 +22,99 @@ on:
         value: ${{ jobs.build.outputs.artifact_name }}
 
 concurrency:
-  group: vkd3d-proton-arm64ec-${{ github.ref }}-${{ inputs.VERSION || 'latest' }}
+  group: vkd3d-proton-arm64ec-${{ github.ref }}-${{ inputs.version || 'latest' }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 env:
-  LLVM_MINGW_VER: "20250114"
-  TOOLCHAIN_DIR: "/opt/llvm-mingw"
+  llvm_mingw_ver: "20250114"
+  toolchain_dir: "/opt/llvm-mingw"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 180
     outputs:
-      version: ${{ steps.version.outputs.VERSION }}
-      commit: ${{ steps.clone.outputs.COMMIT }}
-      artifact_name: ${{ steps.package.outputs.ARTIFACT_NAME }}
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.clone.outputs.commit }}
+      artifact_name: ${{ steps.package.outputs.artifact_name }}
 
     steps:
-      - name: Checkout
+      - name: checkout
         uses: actions/checkout@v4
 
-      - name: Cache LLVM MinGW
+      - name: cache llvm mingw
         id: cache-llvm
         uses: actions/cache@v4
         with:
           path: /opt/llvm-mingw
-          key: llvm-mingw-${{ env.LLVM_MINGW_VER }}-arm64ec
+          key: llvm-mingw-${{ env.llvm_mingw_ver }}-arm64ec
 
-      - name: Setup Environment
+      - name: setup environment
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             git meson ninja-build curl jq python3 \
             glslang-tools spirv-tools zstd llvm
 
-      - name: Setup LLVM MinGW
+      - name: setup llvm mingw
         if: steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
-          curl -sL "https://github.com/mstorsjo/llvm-mingw/releases/download/${{ env.LLVM_MINGW_VER }}/llvm-mingw-${{ env.LLVM_MINGW_VER }}-ucrt-ubuntu-20.04-x86_64.tar.xz" \
-            | sudo tar -xJ -C /opt
-          sudo mv /opt/llvm-mingw-* ${{ env.TOOLCHAIN_DIR }}
+          curl -sl "https://github.com/mstorsjo/llvm-mingw/releases/download/${{ env.llvm_mingw_ver }}/llvm-mingw-${{ env.llvm_mingw_ver }}-ucrt-ubuntu-20.04-x86_64.tar.xz" \
+            | sudo tar -xj -c /opt
+          sudo mv /opt/llvm-mingw-* ${{ env.toolchain_dir }}
 
-      - name: Configure Path
+      - name: configure path
         run: |
-          echo "${{ env.TOOLCHAIN_DIR }}/bin" >> $GITHUB_PATH
+          echo "${{ env.toolchain_dir }}/bin" >> $github_path
 
-      - name: Verify Toolchain
+      - name: verify toolchain
         run: |
-          echo "ARM64EC: $(aarch64-w64-mingw32-gcc --version | head -1)"
+          echo "arm64ec: $(aarch64-w64-mingw32-gcc --version | head -1)"
           echo "i686: $(i686-w64-mingw32-gcc --version | head -1)"
           which widl || echo "widl not found, using llvm-mingw widl"
 
-      - name: Get Version
+      - name: get version
         id: version
         run: |
-          if [[ -n "${{ inputs.VERSION }}" ]]; then
-            VER="${{ inputs.VERSION }}"
-            [[ "$VER" =~ ^v ]] || VER="v$VER"
+          if [[ -n "${{ inputs.version }}" ]]; then
+            ver="${{ inputs.version }}"
+            [[ "$ver" =~ ^v ]] || ver="v$ver"
           else
-            VER=$(curl -sL https://api.github.com/repos/HansKristian-Work/vkd3d-proton/releases/latest | jq -r '.tag_name // empty')
-            [[ -z "$VER" ]] && VER=$(curl -sL https://api.github.com/repos/HansKristian-Work/vkd3d-proton/releases | jq -r '.[0].tag_name')
+            ver=$(curl -sl https://api.github.com/repos/hanskristian-work/vkd3d-proton/releases/latest | jq -r '.tag_name // empty')
+            [[ -z "$ver" ]] && ver=$(curl -sl https://api.github.com/repos/hanskristian-work/vkd3d-proton/releases | jq -r '.[0].tag_name')
           fi
-          echo "TAG=$VER" >> $GITHUB_ENV
-          echo "VERSION=${VER#v}" >> $GITHUB_OUTPUT
+          echo "tag=$ver" >> $github_env
+          echo "version=${ver#v}" >> $github_output
 
-      - name: Clone Source
+      - name: clone source
         id: clone
         run: |
-          git clone --branch ${{ env.TAG }} --depth 1 https://github.com/HansKristian-Work/vkd3d-proton.git src
+          git clone --branch ${{ env.tag }} --depth 1 https://github.com/hanskristian-work/vkd3d-proton.git src
           cd src
           git submodule update --init --recursive --depth 1 --jobs 4
-          COMMIT=$(git rev-parse --short=8 HEAD)
-          COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
-          echo "COMMIT=$COMMIT" >> $GITHUB_OUTPUT
-          echo "COMMIT=$COMMIT" >> $GITHUB_ENV
-          echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_ENV
+          commit=$(git rev-parse --short=8 head)
+          commit_count=$(git rev-list --count head 2>/dev/null || echo "0")
+          echo "commit=$commit" >> $github_output
+          echo "commit=$commit" >> $github_env
+          echo "commit_count=$commit_count" >> $github_env
 
-      - name: Apply Patches
+      - name: apply patches
         run: python3 vkd3d-patches.py src --arch arm64ec --report
 
-      - name: Upload Patch Report
+      - name: upload patch report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: patch-report-arm64ec-${{ steps.version.outputs.VERSION }}-${{ steps.clone.outputs.COMMIT }}
+          name: patch-report-arm64ec-${{ steps.version.outputs.version }}-${{ steps.clone.outputs.commit }}
           path: patch-report.txt
           retention-days: 7
 
-      - name: Create Cross Files
+      - name: create cross files
         run: |
-          cat > arm64ec-cross.txt << 'EOF'
+          cat > arm64ec-cross.txt << 'eof'
           [binaries]
           c = 'aarch64-w64-mingw32-gcc'
           cpp = 'aarch64-w64-mingw32-g++'
@@ -124,8 +124,8 @@ jobs:
           widl = 'aarch64-w64-mingw32-widl'
 
           [built-in options]
-          c_args = ['-O3', '-DNDEBUG', '-ffast-math', '-fno-strict-aliasing', '-mno-outline-atomics']
-          cpp_args = ['-O3', '-DNDEBUG', '-ffast-math', '-fno-strict-aliasing', '-mno-outline-atomics']
+          c_args = ['-o3', '-dndebug', '-ffast-math', '-fno-strict-aliasing', '-mno-outline-atomics']
+          cpp_args = ['-o3', '-dndebug', '-ffast-math', '-fno-strict-aliasing', '-mno-outline-atomics']
           c_link_args = ['-static', '-s']
           cpp_link_args = ['-static', '-s']
 
@@ -134,9 +134,9 @@ jobs:
           cpu_family = 'aarch64'
           cpu = 'aarch64'
           endian = 'little'
-          EOF
+          eof
 
-          cat > i686-cross.txt << 'EOF'
+          cat > i686-cross.txt << 'eof'
           [binaries]
           c = 'i686-w64-mingw32-gcc'
           cpp = 'i686-w64-mingw32-g++'
@@ -146,8 +146,8 @@ jobs:
           widl = 'i686-w64-mingw32-widl'
 
           [built-in options]
-          c_args = ['-O3', '-DNDEBUG', '-ffast-math', '-fno-strict-aliasing', '-msse', '-msse2']
-          cpp_args = ['-O3', '-DNDEBUG', '-ffast-math', '-fno-strict-aliasing', '-msse', '-msse2']
+          c_args = ['-o3', '-dndebug', '-ffast-math', '-fno-strict-aliasing', '-msse', '-msse2']
+          cpp_args = ['-o3', '-dndebug', '-ffast-math', '-fno-strict-aliasing', '-msse', '-msse2']
           c_link_args = ['-static', '-s']
           cpp_link_args = ['-static', '-s']
 
@@ -156,67 +156,67 @@ jobs:
           cpu_family = 'x86'
           cpu = 'i686'
           endian = 'little'
-          EOF
+          eof
 
-      - name: Build arm64ec 
+      - name: build arm64ec
         run: |
           cd src
           meson setup build-arm64ec \
             --cross-file ../arm64ec-cross.txt \
             --buildtype release \
-            -Denable_tests=false \
-            -Denable_extras=false
-          ninja -C build-arm64ec -j$(nproc)
+            -denable_tests=false \
+            -denable_extras=false
+          ninja -c build-arm64ec -j$(nproc)
 
-      - name: Build i686
+      - name: build i686
         run: |
           cd src
           meson setup build-i686 \
             --cross-file ../i686-cross.txt \
             --buildtype release \
-            -Denable_tests=false \
-            -Denable_extras=false
-          ninja -C build-i686 -j$(nproc)
+            -denable_tests=false \
+            -denable_extras=false
+          ninja -c build-i686 -j$(nproc)
 
-      - name: Verify Build
+      - name: verify build
         run: |
           for arch in arm64ec i686; do
             for dll in d3d12.dll d3d12core.dll; do
-              DLL_PATH=$(find src/build-${arch} -name "$dll" -type f | head -1)
-              if [[ -z "$DLL_PATH" || ! -f "$DLL_PATH" ]]; then
-                echo "Missing: $dll ($arch)"
+              dll_path=$(find src/build-${arch} -name "$dll" -type f | head -1)
+              if [[ -z "$dll_path" || ! -f "$dll_path" ]]; then
+                echo "missing: $dll ($arch)"
                 find src/build-${arch} -type f -name "*.dll" || true
                 exit 1
               fi
-              echo "$dll ($arch): $(stat -c%s "$DLL_PATH") bytes"
+              echo "$dll ($arch): $(stat -c%s "$dll_path") bytes"
             done
           done
 
-      - name: Package
+      - name: package
         id: package
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          COMMIT="${{ env.COMMIT }}"
-          ARTIFACT_NAME="vkd3d-proton-arm64ec-${VERSION}-${COMMIT}"
+          version="${{ steps.version.outputs.version }}"
+          commit="${{ env.commit }}"
+          artifact_name="vkd3d-proton-arm64ec-${version}-${commit}"
 
           mkdir -p pkg/system32 pkg/syswow64
 
           for dll in d3d12.dll d3d12core.dll; do
-            ARM64_DLL=$(find src/build-arm64ec -name "$dll" -type f | head -1)
-            I686_DLL=$(find src/build-i686 -name "$dll" -type f | head -1)
-            [[ -n "$ARM64_DLL" ]] && cp "$ARM64_DLL" pkg/system32/
-            [[ -n "$I686_DLL" ]] && cp "$I686_DLL" pkg/syswow64/
+            arm64_dll=$(find src/build-arm64ec -name "$dll" -type f | head -1)
+            i686_dll=$(find src/build-i686 -name "$dll" -type f | head -1)
+            [[ -n "$arm64_dll" ]] && cp "$arm64_dll" pkg/system32/
+            [[ -n "$i686_dll" ]] && cp "$i686_dll" pkg/syswow64/
           done
 
           cd pkg
           sha256sum system32/*.dll syswow64/*.dll > checksums.txt
 
-          cat > profile.json << EOF
+          cat > profile.json << eof
           {
-            "type": "VKD3D",
-            "versionName": "vkd3d-proton ${VERSION} arm64ec",
-            "versionCode": ${{ env.COMMIT_COUNT }},
-            "description": "vkd3d-proton arm64ec ${VERSION} (${COMMIT})",
+            "type": "vkd3d",
+            "versionname": "vkd3d-proton ${version} arm64ec",
+            "versioncode": ${{ env.commit_count }},
+            "description": "vkd3d-proton arm64ec ${version} (${commit})",
             "files": [
               {"source": "system32/d3d12.dll", "target": "\${system32}/d3d12.dll"},
               {"source": "system32/d3d12core.dll", "target": "\${system32}/d3d12core.dll"},
@@ -224,16 +224,16 @@ jobs:
               {"source": "syswow64/d3d12core.dll", "target": "\${syswow64}/d3d12core.dll"}
             ]
           }
-          EOF
+          eof
 
-          tar --zstd -cf "../${ARTIFACT_NAME}.wcp" .
-          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+          tar --zstd -cf "../${artifact_name}.wcp" .
+          echo "artifact_name=$artifact_name" >> $github_output
 
-      - name: Upload Artifact
+      - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.ARTIFACT_NAME }}
+          name: ${{ steps.package.outputs.artifact_name }}
           path: |
-            ${{ steps.package.outputs.ARTIFACT_NAME }}.wcp
+            ${{ steps.package.outputs.artifact_name }}.wcp
             pkg/checksums.txt
-          retention-days: 31
+          retention-days: 30
