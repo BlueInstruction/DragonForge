@@ -154,16 +154,6 @@ jobs:
             **Commit:** `${{ steps.prep.outputs.commit }}`
             **Source:** [vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton)
 
-            ### Downloads
-            - `vkd3d-proton-*.wcp` - x86_64 build (Box64)
-            - `vkd3d-proton-arm64ec-*.wcp` - ARM64EC build (FEXCore)
-
-            ### Features
-            - DirectX 12 Feature Level 12_2
-            - Shader Model 6.6
-            - Raytracing Tier 1.0
-            - Mesh Shader Tier 1
-            - Variable Rate Shading Tier 2
           draft: false
           prerelease: false
         env:
