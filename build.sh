@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Turnip Driver Builder
 # Mesa Turnip Driver for Android
 
 set -euo pipefail
@@ -149,7 +148,7 @@ create_cross_file() {
 [binaries]
 ar = '${ndk_bin}/llvm-ar'
 c = ['ccache', '${ndk_bin}/aarch64-linux-android${compiler_api}-clang']
-cpp = ['ccache', '${ndk_bin}/aarch64-linux-android${compiler_api}-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++']
+cpp = ['ccache', '${ndk_bin}/aarch64-linux-android${compiler_api}-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '-Wno-c++11-narrowing']
 c_ld = 'lld'
 cpp_ld = 'lld'
 strip = '${ndk_bin}/llvm-strip'
@@ -163,7 +162,7 @@ endian = 'little'
 
 [built-in options]
 c_args = ['-O3', '-DNDEBUG', '-Wno-error']
-cpp_args = ['-O3', '-DNDEBUG', '-Wno-error']
+cpp_args = ['-O3', '-DNDEBUG', '-Wno-error', '-Wno-c++11-narrowing']
 EOF
 
     log_success "cross-compilation file created"
