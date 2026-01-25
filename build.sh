@@ -147,7 +147,7 @@ create_cross_file() {
 [binaries]
 ar = '${ndk_bin}/llvm-ar'
 c = ['ccache', '${ndk_bin}/aarch64-linux-android${compiler_api}-clang']
-cpp = ['ccache', '${ndk_bin}/aarch64-linux-android${compiler_api}-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '-Wno-c++11-narrowing']
+cpp = ['ccache', '${ndk_bin}/aarch64-linux-android${compiler_api}-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '-Wno-c++11-narrowing', '-Wno-vla-cxx-extension', '-Wno-c99-designator']
 c_ld = 'lld'
 cpp_ld = 'lld'
 strip = '${ndk_bin}/llvm-strip'
