@@ -62,6 +62,19 @@ get_mesa_version() {
     [[ -f "${MESA_DIR}/VERSION" ]] && cat "${MESA_DIR}/VERSION" || echo "unknown"
 }
 
+get_vulkan_version() {
+    local vk_header="${MESA_DIR}/include/vulkan/vulkan_core.h"
+    if [[ -f "$vk_header" ]]; then
+        local major minor patch
+        major=$(grep -m1 "#define VK_HEADER_VERSION_COMPLETE" "$vk_header" | grep -oP 'VK_MAKE_API_VERSION\(\d+,\s*\K\d+' || echo "1")
+        minor=$(grep -m1 "#define VK_HEADER_VERSION_COMPLETE" "$vk_header" | grep -oP 'VK_MAKE_API_VERSION\(\d+,\s*\d+,\s*\K\d+' || echo "3")
+        patch=$(grep -m1 "#define VK_HEADER_VERSION" "$vk_header" | awk '{print $3}' || echo "0")
+        echo "${major}.${minor}.${patch}"
+    else
+        echo "1.3.0"
+    fi
+}
+
 prepare_directories() {
     log_info "preparing build directories..."
     rm -rf "$BUILD_DIR"
@@ -218,9 +231,20 @@ compile_driver() {
 package_driver() {
     log_info "packaging driver..."
     
-    local version commit
+    local version commit vulkan_version
     version=$(cat "${BUILD_DIR}/version.txt")
     commit=$(cat "${BUILD_DIR}/commit.txt")
+    vulkan_version=$(get_vulkan_version)
+    
+    # تحديد نوع البناء (devel للفروع، بدون شيء للإصدارات)
+    local version_suffix=""
+    if [[ "$MESA_SOURCE" == "main_branch" || "$MESA_SOURCE" == "staging_branch" ]]; then
+        version_suffix="-devel"
+    fi
+    
+    # تاريخ البناء
+    local build_date
+    build_date=$(date +'%b-%d-%Y' | tr '[:upper:]' '[:lower:]')
     
     local driver_src="${MESA_DIR}/build/src/freedreno/vulkan/libvulkan_freedreno.so"
     local package_dir="${BUILD_DIR}/package"
@@ -236,22 +260,27 @@ package_driver() {
     local driver_size
     driver_size=$(du -h "${package_dir}/${driver_name}" | cut -f1)
     
+    # اسم الملف: turnip_v25.3.4-jan-25-2026.zip أو turnip_v26.0.0-devel-jan-25-2026.zip
+    local filename="turnip_v${version}${version_suffix}-${build_date}"
+    
     cat > "${package_dir}/meta.json" << EOF
 {
     "schemaVersion": 1,
-    "name": "Turnip ${version}",
-    "description": "Mesa ${version} (${commit}) - Turnip driver for Adreno GPUs",
-    "author": "Mesa3D",
+    "name": "turnip_v${version}${version_suffix}-${build_date}",
+    "description": "Compiled from Mesa ${version} (${commit})",
+    "author": "Blue",
     "packageVersion": "1",
     "vendor": "Mesa3D",
-    "driverVersion": "${version}",
-    "minApi": 28,
+    "driverVersion": "Vulkan ${vulkan_version}",
+    "minApi": 27,
     "libraryName": "${driver_name}"
 }
 EOF
 
-    local filename="turnip-${version}-${commit}"
     echo "$filename" > "${BUILD_DIR}/filename.txt"
+    echo "$version" > "${BUILD_DIR}/version.txt"
+    echo "$vulkan_version" > "${BUILD_DIR}/vulkan_version.txt"
+    echo "$build_date" > "${BUILD_DIR}/build_date.txt"
     
     cd "$package_dir"
     zip -9 "${BUILD_DIR}/${filename}.zip" "$driver_name" meta.json
@@ -260,17 +289,21 @@ EOF
 }
 
 print_summary() {
-    local version commit
+    local version commit vulkan_version build_date
     version=$(cat "${BUILD_DIR}/version.txt")
     commit=$(cat "${BUILD_DIR}/commit.txt")
+    vulkan_version=$(cat "${BUILD_DIR}/vulkan_version.txt")
+    build_date=$(cat "${BUILD_DIR}/build_date.txt")
     
     echo ""
     log_info "build summary:"
-    echo "  mesa version : $version"
-    echo "  commit       : $commit"
-    echo "  source       : $MESA_SOURCE"
-    echo "  build type   : $BUILD_TYPE"
-    echo "  android api  : $API_LEVEL"
+    echo "  mesa version   : $version"
+    echo "  vulkan version : $vulkan_version"
+    echo "  commit         : $commit"
+    echo "  build date     : $build_date"
+    echo "  source         : $MESA_SOURCE"
+    echo "  build type     : $BUILD_TYPE"
+    echo "  android api    : $API_LEVEL"
     echo ""
     echo "  output:"
     ls -lh "${BUILD_DIR}"/*.zip 2>/dev/null | awk '{print "    " $0}'
