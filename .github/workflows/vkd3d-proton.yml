@@ -1,10 +1,10 @@
-name: build vkd3d-proton x86_64
+name: build vkd3d-proton
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "version (empty = latest)"
+        description: "version"
         required: false
         default: ""
   workflow_call:
@@ -82,7 +82,7 @@ jobs:
           echo "commit_count=$commit_count" >> $GITHUB_ENV
 
       - name: apply patches
-        run: python3 scripts/vkd3d-patches.py src --arch x86_64 --report
+        run: python3 vkd3d-patches.py src --arch x86_64 --report
 
       - name: upload patch report
         uses: actions/upload-artifact@v4
