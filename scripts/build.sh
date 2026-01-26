@@ -47,6 +47,7 @@ clone_source() {
     log "commit: $COMMIT"
     export COMMIT
 }
+
 apply_patches() {
     log "applying performance patches"
     if ! python3 "$PROJECT_ROOT/patches/performance.py" "$SRC_DIR" --arch "$ARCH" --report; then
@@ -70,8 +71,7 @@ build_x86_64() {
 build_arm64ec() {
     log "building arm64ec"
 
-    # Create cross-compilation files in the source directory instead of project root
-    cat > "$SRC_DIR/arm64ec-cross.txt" << 'EOF'
+    cat > "$PROJECT_ROOT/arm64ec-cross.txt" << 'EOF'
 [binaries]
 c = 'aarch64-w64-mingw32-gcc'
 cpp = 'aarch64-w64-mingw32-g++'
@@ -93,10 +93,11 @@ cpu = 'aarch64'
 endian = 'little'
 EOF
 
-    cat > "$SRC_DIR/i686-cross.txt" << 'EOF'
+    cat > "$PROJECT_ROOT/i686-cross.txt" << 'EOF'
 [binaries]
 c = 'i686-w64-mingw32-gcc'
-cpp = 'i686-w64-mingw32-g++'ar = 'i686-w64-mingw32-ar'
+cpp = 'i686-w64-mingw32-g++'
+ar = 'i686-w64-mingw32-ar'
 strip = 'llvm-strip'
 windres = 'i686-w64-mingw32-windres'
 widl = 'i686-w64-mingw32-widl'
@@ -118,7 +119,7 @@ EOF
 
     log "configuring arm64ec build"
     meson setup build-arm64ec \
-        --cross-file "$SRC_DIR/arm64ec-cross.txt" \
+        --cross-file "$PROJECT_ROOT/arm64ec-cross.txt" \
         --buildtype release \
         -Denable_tests=false \
         -Denable_extras=false
@@ -128,7 +129,7 @@ EOF
 
     log "configuring i686 build"
     meson setup build-i686 \
-        --cross-file "$SRC_DIR/i686-cross.txt" \
+        --cross-file "$PROJECT_ROOT/i686-cross.txt" \
         --buildtype release \
         -Denable_tests=false \
         -Denable_extras=false
@@ -145,7 +146,8 @@ verify_build() {
         BUILD_OUTPUT=$(find "$OUTPUT_DIR" -maxdepth 1 -type d -name "vkd3d-proton-*" | head -1)
         [[ -z "$BUILD_OUTPUT" ]] && error "build output not found"
 
-        for arch in x64 x86; do            for dll in d3d12.dll d3d12core.dll; do
+        for arch in x64 x86; do
+            for dll in d3d12.dll d3d12core.dll; do
                 dll_path="$BUILD_OUTPUT/$arch/$dll"
                 if [[ ! -f "$dll_path" ]]; then
                     log "missing: $dll_path"
