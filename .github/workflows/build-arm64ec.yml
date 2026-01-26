@@ -57,7 +57,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             git meson ninja-build curl jq python3 \
-            glslang-tools spirv-tools zstd llvm
+            glslang-tools spirv-tools zstd llvm \
+            gcc-mingw-w64-i686 g++-mingw-w64-i686
 
       - name: setup-toolchain
         if: steps.cache-llvm.outputs.cache-hit != 'true'
