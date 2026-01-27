@@ -116,7 +116,7 @@ jobs:
             **Mesa Version:** ${{ steps.build.outputs.version }}
             **Vulkan Version:** ${{ steps.build.outputs.vulkan_version }}
             **Build Date:** ${{ steps.build.outputs.build_date }}
-            **Android API:** ${{ env.API_LEVEL }}
+            
           files: build/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
