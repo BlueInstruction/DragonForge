@@ -13,6 +13,15 @@ jobs:
   code-review:
     runs-on: ubuntu-latest
     steps:
+      - name: Verify Qoder setup
+        run: |
+          if [ -z "${QODER_PERSONAL_ACCESS_TOKEN}" ]; then
+            echo "::error::QODER_PERSONAL_ACCESS_TOKEN is not set. See SETUP_QODER.md in the repository and follow the instructions to configure the Qoder GitHub App and add the secret to this repo."
+            exit 1
+          fi
+        env:
+          QODER_PERSONAL_ACCESS_TOKEN: ${{ secrets.QODER_PERSONAL_ACCESS_TOKEN }}
+
       - name: Run Qoder Code Review
         uses: QoderAI/qoder-action@v0
         with:
