@@ -366,37 +366,37 @@ jobs:
         mkdir -p "drive_c/Program Files (x86)"
         mkdir -p drive_c/ProgramData
         
-        cat > system.reg << 'EOF'
-WINE REGISTRY Version 2
-;; All keys relative to \\Machine
-
-[Software\\Microsoft\\Windows\\CurrentVersion]
-"ProgramFilesDir"="C:\\Program Files"
-"CommonFilesDir"="C:\\Program Files\\Common Files"
-"ProgramFilesDir (x86)"="C:\\Program Files (x86)"
-
-[Software\\Microsoft\\Windows NT\\CurrentVersion]
-"CurrentVersion"="10.0"
-"CurrentBuild"="19041"
-"ProductName"="Windows 10 Pro"
-
-[System\\CurrentControlSet\\Control\\Session Manager\\Environment]
-"PATH"="C:\\windows\\system32;C:\\windows"
-"TEMP"="C:\\users\\Public\\Temp"
-"TMP"="C:\\users\\Public\\Temp"
-EOF
+        cat > system.reg << 'EOFMARK'
+        WINE REGISTRY Version 2
+        ;; All keys relative to \\Machine
         
-        cat > user.reg << 'EOF'
-WINE REGISTRY Version 2
-;; All keys relative to \\User\\S-1-5-21-0-0-0-1000
-
-[Software\\Wine\\DllOverrides]
-"*d3d9"="native"
-"*d3d10core"="native"
-"*d3d11"="native"
-"*d3d12"="native"
-"*dxgi"="native"
-EOF
+        [Software\\Microsoft\\Windows\\CurrentVersion]
+        "ProgramFilesDir"="C:\\Program Files"
+        "CommonFilesDir"="C:\\Program Files\\Common Files"
+        "ProgramFilesDir (x86)"="C:\\Program Files (x86)"
+        
+        [Software\\Microsoft\\Windows NT\\CurrentVersion]
+        "CurrentVersion"="10.0"
+        "CurrentBuild"="19041"
+        "ProductName"="Windows 10 Pro"
+        
+        [System\\CurrentControlSet\\Control\\Session Manager\\Environment]
+        "PATH"="C:\\windows\\system32;C:\\windows"
+        "TEMP"="C:\\users\\Public\\Temp"
+        "TMP"="C:\\users\\Public\\Temp"
+        EOFMARK
+        
+        cat > user.reg << 'EOFMARK'
+        WINE REGISTRY Version 2
+        ;; All keys relative to \\User\\S-1-5-21-0-0-0-1000
+        
+        [Software\\Wine\\DllOverrides]
+        "*d3d9"="native"
+        "*d3d10core"="native"
+        "*d3d11"="native"
+        "*d3d12"="native"
+        "*dxgi"="native"
+        EOFMARK
         
         echo 'WINE REGISTRY Version 2' > userdef.reg
         
@@ -459,52 +459,52 @@ EOF
         
         cp prefixPack.txz wcp-package/
         
-        cat > wcp-package/profile.json << EOF
-{
-  "type": "Wine",
-  "versionName": "${VERSION_NAME}",
-  "versionCode": ${VERSION_CODE},
-  "description": "Wine ARM64EC with FEX + DXVK + VKD3D for Winlator CMod/Bionic/Ludashi",
-  "files": [],
-  "wine": {
-    "binPath": "bin",
-    "libPath": "lib",
-    "prefixPack": "prefixPack.txz"
-  }
-}
-EOF
+        cat > wcp-package/profile.json << 'EOFMARK'
+        {
+          "type": "Wine",
+          "versionName": "${VERSION_NAME}",
+          "versionCode": ${VERSION_CODE},
+          "description": "Wine ARM64EC with FEX + DXVK + VKD3D for Winlator CMod/Bionic/Ludashi",
+          "files": [],
+          "wine": {
+            "binPath": "bin",
+            "libPath": "lib",
+            "prefixPack": "prefixPack.txz"
+          }
+        }
+        EOFMARK
         
-        cat > wcp-package/README.txt << EOF
-Wine ARM64EC for Winlator (CMod/Bionic/Ludashi)
-================================================
-Version: ${VERSION_NAME}
-Build Date: ${BUILD_DATE}
-
-Components:
-- Wine ARM64EC (bylaws fork)
-- FEX-Emu (x86/x64 emulation)
-- DXVK 2.7.1 (DirectX to Vulkan)
-- VKD3D-Proton 3.0b (Direct3D 12)
-
-Compatible with:
-- Winlator CMod
-- Winlator Bionic
-- Winlator Ludashi
-
-Installation:
-1. Copy .wcp file to your Android device
-2. Open Winlator
-3. Go to Settings > Wine Versions
-4. Press Import and select this file
-5. Wait for import to complete
-
-Requirements:
-- ARM64 processor (64-bit)
-- Android 10 or newer
-- 8GB RAM or more recommended
-- GPU with Vulkan support
-- 10GB free storage minimum
-EOF
+        cat > wcp-package/README.txt << 'EOFMARK'
+        Wine ARM64EC for Winlator (CMod/Bionic/Ludashi)
+        ================================================
+        Version: ${VERSION_NAME}
+        Build Date: ${BUILD_DATE}
+        
+        Components:
+        - Wine ARM64EC (bylaws fork)
+        - FEX-Emu (x86/x64 emulation)
+        - DXVK 2.7.1 (DirectX to Vulkan)
+        - VKD3D-Proton 3.0b (Direct3D 12)
+        
+        Compatible with:
+        - Winlator CMod
+        - Winlator Bionic
+        - Winlator Ludashi
+        
+        Installation:
+        1. Copy .wcp file to your Android device
+        2. Open Winlator
+        3. Go to Settings > Wine Versions
+        4. Press Import and select this file
+        5. Wait for import to complete
+        
+        Requirements:
+        - ARM64 processor (64-bit)
+        - Android 10 or newer
+        - 8GB RAM or more recommended
+        - GPU with Vulkan support
+        - 10GB free storage minimum
+        EOFMARK
         
         echo "=== Compressing WCP package ==="
         cd wcp-package
@@ -583,45 +583,45 @@ EOF
       run: |
         BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
         
-        cat >> $GITHUB_STEP_SUMMARY << EOF
-## Wine ARM64EC Build for Winlator
-
-### Build Configuration
-| Setting | Value |
-|---------|-------|
-| Version | \`${VERSION_NAME}\` |
-| Build Date | ${BUILD_DATE} |
-| FEX | ${{ github.event.inputs.include_fex || 'true' }} |
-| DXVK | ${{ github.event.inputs.include_dxvk || 'true' }} |
-| VKD3D-Proton | ${{ github.event.inputs.include_vkd3d || 'true' }} |
-
-### Components
-- Wine ARM64EC (bylaws fork with full ARM64EC support)
-- FEX-Emu (x86/x64 CPU emulation)
-- DXVK 2.7.1 (DirectX 9/10/11 to Vulkan)
-- VKD3D-Proton 3.0b (Direct3D 12 to Vulkan)
-
-### Compatibility
-- Winlator CMod
-- Winlator Bionic
-- Winlator Ludashi
-EOF
+        cat >> $GITHUB_STEP_SUMMARY << 'EOFMARK'
+        ## Wine ARM64EC Build for Winlator
+        
+        ### Build Configuration
+        | Setting | Value |
+        |---------|-------|
+        | Version | `${VERSION_NAME}` |
+        | Build Date | ${BUILD_DATE} |
+        | FEX | ${{ github.event.inputs.include_fex || 'true' }} |
+        | DXVK | ${{ github.event.inputs.include_dxvk || 'true' }} |
+        | VKD3D-Proton | ${{ github.event.inputs.include_vkd3d || 'true' }} |
+        
+        ### Components
+        - Wine ARM64EC (bylaws fork with full ARM64EC support)
+        - FEX-Emu (x86/x64 CPU emulation)
+        - DXVK 2.7.1 (DirectX 9/10/11 to Vulkan)
+        - VKD3D-Proton 3.0b (Direct3D 12 to Vulkan)
+        
+        ### Compatibility
+        - Winlator CMod
+        - Winlator Bionic
+        - Winlator Ludashi
+        EOFMARK
         
         if [ -f "${OUT_DIR}/${VERSION_NAME}.wcp" ]; then
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-
-### Output
-- **File**: \`${VERSION_NAME}.wcp\`
-- **Size**: $(du -h ${OUT_DIR}/${VERSION_NAME}.wcp | cut -f1)
-- **SHA256**: \`$(cat ${OUT_DIR}/${VERSION_NAME}.wcp.sha256 | cut -d' ' -f1)\`
-
-### Download
-Use the Artifacts link above to download the file
-EOF
+          cat >> $GITHUB_STEP_SUMMARY << 'EOFMARK'
+        
+        ### Output
+        - **File**: `${VERSION_NAME}.wcp`
+        - **Size**: $(du -h ${OUT_DIR}/${VERSION_NAME}.wcp | cut -f1)
+        - **SHA256**: `$(cat ${OUT_DIR}/${VERSION_NAME}.wcp.sha256 | cut -d' ' -f1)`
+        
+        ### Download
+        Use the Artifacts link above to download the file
+        EOFMARK
         else
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-
-### Warning
-Failed to create WCP file - check the logs
-EOF
+          cat >> $GITHUB_STEP_SUMMARY << 'EOFMARK'
+        
+        ### Warning
+        Failed to create WCP file - check the logs
+        EOFMARK
         fi
