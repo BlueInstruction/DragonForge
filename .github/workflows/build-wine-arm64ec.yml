@@ -490,11 +490,11 @@ EOF
         - FEXCore / Box64WoW
         
         ### Components
-        - ✅ Wine ARM64EC (--enable-archs=arm64ec,aarch64)
-        - ✅ Wine i386 DLLs (WoW64)
-        - ✅ DXVK 2.7.1
-        - ✅ VKD3D-Proton 3.0b
-        - ✅ Wine prefix template
+        - Wine ARM64EC (--enable-archs=arm64ec,aarch64)
+        - Wine i386 DLLs (WoW64)
+        - DXVK 2.7.1
+        - VKD3D-Proton 3.0b
+        - Wine prefix template
         
         EOF
         
