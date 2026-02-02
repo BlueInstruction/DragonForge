@@ -154,10 +154,26 @@ jobs:
           --without-fontconfig \
           --disable-tests
         
-        make -j$(nproc) tools nls/locale.nls || make -j$(nproc) tools
+        # Build all required tools
+        make -j$(nproc) __tooldeps__ || make -j$(nproc) tools
         
-        echo "=== Wine tools built ==="
-        ls -la tools/widl/ || true
+        # Also build winebuild explicitly
+        make -j$(nproc) tools/winebuild/winebuild
+        make -j$(nproc) tools/widl/widl
+        make -j$(nproc) tools/wrc/wrc
+        make -j$(nproc) tools/wmc/wmc
+        
+        # Verify tools exist
+        echo "=== Verifying wine-tools ==="
+        for tool in winebuild widl wrc wmc; do
+          if [ -f "tools/$tool/$tool" ]; then
+            echo "✓ $tool found"
+          else
+            echo "✗ $tool NOT found"
+            exit 1
+          fi
+        done
+        
         cd ..
     
     - name: Build Wine ARM64EC
