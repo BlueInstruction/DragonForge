@@ -1,156 +1,164 @@
-name: Build Proton 10.0-4 ARM64EC
+name: Build Wine ARM64EC
 
 on:
   workflow_dispatch:
     inputs:
       version_name:
         description: 'Version name'
-        default: 'proton-10.0-4-arm64ec'
-      include_dxvk:
-        description: 'Include DXVK 2.7.1'
-        default: 'true'
+        default: 'wine-arm64ec-fex'
+      wine_source:
+        description: 'Wine source'
+        default: 'bylaws'
         type: choice
-        options: ['true', 'false']
-      include_vkd3d:
-        description: 'Include VKD3D-Proton 3.0b'
+        options: ['bylaws', 'upstream']
+      include_dxvk:
+        description: 'Include DXVK'
         default: 'true'
         type: choice
         options: ['true', 'false']
 
 env:
-  VERSION_NAME: ${{ github.event.inputs.version_name || 'proton-10.0-4-arm64ec' }}
+  VERSION_NAME: ${{ github.event.inputs.version_name || 'wine-arm64ec-fex' }}
   OUT_DIR: "./out"
 
 jobs:
-  build-arm64ec:
+  build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 240
+    timeout-minutes: 300
     
     steps:
     - name: Free disk space
       run: |
-        echo "=== Disk space before cleanup ==="
-        df -h
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/ghc
-        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo apt-get clean
-        echo "=== Disk space after cleanup ==="
         df -h
     
-    - name: Checkout build scripts
+    - name: Checkout
       uses: actions/checkout@v4
     
-    - name: Install system dependencies
+    - name: Install build dependencies
       run: |
         sudo dpkg --add-architecture i386
         sudo apt-get update
         sudo apt-get install -y \
-          build-essential \
-          git \
-          wget \
-          curl \
-          xz-utils \
-          zstd \
-          flex \
-          bison \
-          autoconf \
-          automake \
-          libtool \
-          gettext \
-          pkg-config \
-          cmake \
-          ninja-build \
-          python3 \
-          python3-pip \
-          meson \
-          glslang-tools \
-          libvulkan-dev \
-          libdrm-dev \
-          libudev-dev \
-          libgnutls28-dev \
-          libpulse-dev \
-          libasound2-dev \
-          libsdl2-dev \
-          libcups2-dev \
-          libusb-1.0-0-dev \
-          libunwind-dev \
-          libgstreamer1.0-dev \
-          libgstreamer-plugins-base1.0-dev \
-          clang \
-          lld \
-          llvm
+          build-essential git wget curl xz-utils zstd \
+          flex bison autoconf automake libtool gettext \
+          pkg-config cmake ninja-build python3 meson \
+          clang lld llvm \
+          gcc-multilib g++-multilib \
+          libvulkan-dev glslang-tools
+    
+    - name: Download bylaws LLVM-MinGW (ARM64EC support)
+      run: |
+        echo "=== Downloading bylaws LLVM-MinGW ==="
         
-        echo "=== Installed versions ==="
-        clang --version | head -n1
-        lld --version | head -n1
+        # Try to get latest release
+        RELEASE_INFO=$(curl -s https://api.github.com/repos/bylaws/llvm-mingw/releases/latest)
+        
+        # Look for x86_64 Linux build (for cross-compilation)
+        DOWNLOAD_URL=$(echo "$RELEASE_INFO" | grep -o 'https://[^"]*x86_64[^"]*linux[^"]*tar[^"]*' | head -1)
+        
+        if [ -z "$DOWNLOAD_URL" ]; then
+          # Fallback URL
+          DOWNLOAD_URL="https://github.com/bylaws/llvm-mingw/releases/download/20241119/llvm-mingw-20241119-ucrt-ubuntu-22.04-x86_64.tar.xz"
+        fi
+        
+        echo "Downloading: $DOWNLOAD_URL"
+        wget -q "$DOWNLOAD_URL" -O llvm-mingw.tar.xz || wget -q "$DOWNLOAD_URL" -O llvm-mingw.tar.gz
+        
+        # Extract
+        if [ -f "llvm-mingw.tar.xz" ]; then
+          tar -xf llvm-mingw.tar.xz
+        else
+          tar -xf llvm-mingw.tar.gz
+        fi
+        
+        # Find and set path
+        TOOLCHAIN_DIR=$(ls -d llvm-mingw-*/ 2>/dev/null | head -1)
+        echo "TOOLCHAIN_DIR=$PWD/$TOOLCHAIN_DIR" >> $GITHUB_ENV
+        
+        # IMPORTANT: Must be FIRST in PATH (per FEX docs)
+        echo "$PWD/${TOOLCHAIN_DIR}bin" >> $GITHUB_PATH
     
-    - name: Download LLVM-MinGW toolchain
+    - name: Verify ARM64EC toolchain
       run: |
-        echo "=== Downloading LLVM-MinGW ==="
-        wget -q "https://github.com/mstorsjo/llvm-mingw/releases/download/20250114/llvm-mingw-20250114-ucrt-ubuntu-20.04-x86_64.tar.xz"
-        tar -xf llvm-mingw-*.tar.xz
-        echo "$PWD/llvm-mingw-20250114-ucrt-ubuntu-20.04-x86_64/bin" >> $GITHUB_PATH
+        export PATH="${TOOLCHAIN_DIR}bin:$PATH"
+        
+        echo "=== Available compilers ==="
+        ls -la ${TOOLCHAIN_DIR}bin/ | grep -E "clang|mingw" | head -20
+        
+        echo ""
+        echo "=== Checking ARM64EC compiler ==="
+        if command -v arm64ec-w64-mingw32-clang &> /dev/null; then
+          echo "✓ arm64ec-w64-mingw32-clang found"
+          arm64ec-w64-mingw32-clang --version | head -2
+        else
+          echo "⚠ arm64ec-w64-mingw32-clang not found"
+          echo "Will use aarch64-w64-mingw32-clang"
+        fi
+        
+        echo ""
+        echo "=== Checking aarch64 compiler ==="
+        aarch64-w64-mingw32-clang --version | head -2
     
-    - name: Verify toolchain
+    - name: Clone Wine source
       run: |
-        export PATH="$PWD/llvm-mingw-20250114-ucrt-ubuntu-20.04-x86_64/bin:$PATH"
-        echo "=== Checking ARM64 toolchain ==="
-        which aarch64-w64-mingw32-clang
-        aarch64-w64-mingw32-clang --version
-        echo "=== Checking ARM64EC target ==="
-        clang --print-targets | grep -i aarch64 || true
-    
-    - name: Clone Wine/Proton source
-      run: |
-        echo "=== Cloning Valve Wine (Proton) ==="
-        git clone --depth 1 -b proton_10.0 https://github.com/ValveSoftware/wine.git wine-proton
+        WINE_SOURCE="${{ github.event.inputs.wine_source || 'bylaws' }}"
+        
+        if [ "$WINE_SOURCE" = "bylaws" ]; then
+          echo "=== Cloning bylaws Wine (ARM64EC optimized) ==="
+          git clone --depth 1 https://github.com/bylaws/wine.git wine-source
+        else
+          echo "=== Cloning upstream Wine ==="
+          git clone --depth 1 https://github.com/wine-mirror/wine.git wine-source
+        fi
+        
+        echo "Wine version:"
+        cat wine-source/VERSION 2>/dev/null || git -C wine-source describe --tags 2>/dev/null || echo "unknown"
     
     - name: Prepare Wine source
       run: |
-        cd wine-proton
+        cd wine-source
+        
+        # Generate required files
         tools/make_requests || true
         tools/make_specfiles || true
         dlls/winevulkan/make_vulkan || true
-        autoreconf -f || true
-        cd ..
-    
-    - name: Build Wine tools (native)
-      run: |
-        mkdir -p wine-tools
-        cd wine-tools
         
-        ../wine-proton/configure \
+        # Run autoreconf if needed
+        if [ -f "autogen.sh" ]; then
+          ./autogen.sh || true
+        else
+          autoreconf -f || true
+        fi
+    
+    - name: Build Wine tools (native x86_64)
+      run: |
+        mkdir -p wine-tools && cd wine-tools
+        
+        ../wine-source/configure \
           --enable-win64 \
           --without-x \
           --without-freetype \
           --without-fontconfig \
           --disable-tests
         
+        # Build required tools
         make -j$(nproc) __tooldeps__ || make -j$(nproc) tools
-        make -j$(nproc) tools/winebuild/winebuild
-        make -j$(nproc) tools/widl/widl
-        make -j$(nproc) tools/wrc/wrc
-        make -j$(nproc) tools/wmc/wmc
         
-        # Build nls
-        make -j$(nproc) nls/locale.nls || true
-        
-        echo "=== Verifying wine-tools ==="
-        ls -la tools/widl/ tools/winebuild/ tools/wrc/ tools/wmc/
-        ls -la nls/ || true
-        cd ..
+        echo "=== Wine tools built ==="
+        ls -la tools/widl/widl tools/winebuild/winebuild tools/wrc/wrc tools/wmc/wmc 2>/dev/null || \
+        ls -la tools/
     
     - name: Build Wine ARM64EC
       run: |
-        export PATH="$PWD/llvm-mingw-20250114-ucrt-ubuntu-20.04-x86_64/bin:$PATH"
+        export PATH="${TOOLCHAIN_DIR}bin:$PATH"
         
-        mkdir -p wine-arm64ec
-        cd wine-arm64ec
+        mkdir -p wine-arm64ec && cd wine-arm64ec
         
-        ../wine-proton/configure \
-          --enable-archs=arm64ec,aarch64 \
+        # Configure with ARM64EC + aarch64 + i386 (per FEX wiki)
+        ../wine-source/configure \
+          --enable-archs=arm64ec,aarch64,i386 \
           --with-mingw=clang \
           --with-wine-tools=../wine-tools \
           --without-x \
@@ -159,151 +167,167 @@ jobs:
           --disable-tests \
           --prefix="$PWD/install"
         
-        # Fix locale.nls issue
-        mkdir -p nls
-        if [ -f "../wine-tools/nls/locale.nls" ]; then
-          cp ../wine-tools/nls/locale.nls nls/
-        elif [ -f "../wine-proton/nls/locale.nls" ]; then
-          cp ../wine-proton/nls/locale.nls nls/
-        fi
+        # Build
+        echo "=== Starting Wine ARM64EC build ==="
+        make -j$(nproc) 2>&1 | tee build.log || {
+          echo "=== Build failed, showing errors ==="
+          grep -n "error:" build.log | tail -50
+          exit 1
+        }
         
-        make -j$(nproc)
+        # Install
         make install
         
         echo "=== Wine ARM64EC build complete ==="
-        ls -la install/bin/ | head -20
-        ls -la install/lib/wine/ | head -20
-        cd ..
+        ls -la install/bin/ | head -15
+        echo ""
+        ls -la install/lib/wine/ | head -15
     
-    - name: Download DXVK 2.7.1
+    - name: Download FEX Wine DLLs
+      run: |
+        echo "=== Downloading FEX Wine DLLs ==="
+        mkdir -p fex-dlls
+        
+        # Try FEX 2601 (latest as of Jan 2026)
+        FEX_RELEASES=("FEX-2601" "FEX-2511" "FEX-2501")
+        
+        for FEX_VER in "${FEX_RELEASES[@]}"; do
+          echo "Trying $FEX_VER..."
+          wget -q "https://github.com/FEX-Emu/FEX/releases/download/${FEX_VER}/fex-emu-wine_${FEX_VER#FEX-}_arm64.deb" \
+            -O fex-wine.deb && break || true
+        done
+        
+        if [ -f "fex-wine.deb" ]; then
+          dpkg-deb -x fex-wine.deb fex-dlls/
+          echo "✓ FEX DLLs extracted:"
+          find fex-dlls -name "*.dll" -o -name "*.so" | head -10
+        else
+          echo "⚠ Could not download FEX DLLs"
+        fi
+    
+    - name: Download DXVK
       if: github.event.inputs.include_dxvk == 'true'
       run: |
         wget -q "https://github.com/doitsujin/dxvk/releases/download/v2.7.1/dxvk-2.7.1.tar.gz"
         tar -xf dxvk-2.7.1.tar.gz
-        echo "=== DXVK 2.7.1 downloaded ==="
         ls -la dxvk-2.7.1/
     
-    - name: Download VKD3D-Proton 3.0b
-      if: github.event.inputs.include_vkd3d == 'true'
+    - name: Download VKD3D-Proton
       run: |
         wget -q "https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v3.0b/vkd3d-proton-3.0b.tar.zst" || true
         if [ -f "vkd3d-proton-3.0b.tar.zst" ]; then
-          zstd -d vkd3d-proton-3.0b.tar.zst -o vkd3d-proton-3.0b.tar
-          tar -xf vkd3d-proton-3.0b.tar
+          zstd -d vkd3d-proton-3.0b.tar.zst -o vkd3d.tar
+          tar -xf vkd3d.tar
         fi
-        ls -la vkd3d-proton-*/ 2>/dev/null || true
     
-    - name: Create Wine prefix pack
+    - name: Create prefix pack
       run: |
-        mkdir -p prefix_temp
-        cd prefix_temp
+        mkdir -p prefix_temp && cd prefix_temp
         
-        mkdir -p drive_c/windows/system32
-        mkdir -p drive_c/windows/syswow64
+        mkdir -p drive_c/windows/{system32,syswow64}
         mkdir -p drive_c/users/Public/Temp
-        mkdir -p "drive_c/Program Files"
-        mkdir -p "drive_c/Program Files (x86)"
-        mkdir -p drive_c/ProgramData
+        mkdir -p "drive_c/Program Files" "drive_c/Program Files (x86)"
         
-        echo 'WINE REGISTRY Version 2' > system.reg
-        echo ';; All keys relative to \\Machine' >> system.reg
-        echo '' >> system.reg
-        echo '[Software\\Microsoft\\Windows\\CurrentVersion]' >> system.reg
-        echo '"ProgramFilesDir"="C:\\Program Files"' >> system.reg
-        echo '"CommonFilesDir"="C:\\Program Files\\Common Files"' >> system.reg
-        echo '"ProgramFilesDir (x86)"="C:\\Program Files (x86)"' >> system.reg
-        echo '' >> system.reg
-        echo '[Software\\Microsoft\\Windows NT\\CurrentVersion]' >> system.reg
-        echo '"CurrentVersion"="10.0"' >> system.reg
-        echo '"CurrentBuild"="19041"' >> system.reg
-        echo '"ProductName"="Windows 10 Pro"' >> system.reg
-        echo '' >> system.reg
-        echo '[System\\CurrentControlSet\\Control\\Session Manager\\Environment]' >> system.reg
-        echo '"PATH"="C:\\windows\\system32;C:\\windows"' >> system.reg
-        echo '"TEMP"="C:\\users\\Public\\Temp"' >> system.reg
-        echo '"TMP"="C:\\users\\Public\\Temp"' >> system.reg
+        # system.reg
+        cat > system.reg << 'EOF'
+        WINE REGISTRY Version 2
+        ;; All keys relative to \\Machine
         
-        echo 'WINE REGISTRY Version 2' > user.reg
-        echo ';; All keys relative to \\User\\S-1-5-21-0-0-0-1000' >> user.reg
-        echo '' >> user.reg
-        echo '[Software\\Wine\\DllOverrides]' >> user.reg
-        echo '"*d3d9"="native"' >> user.reg
-        echo '"*d3d10core"="native"' >> user.reg
-        echo '"*d3d11"="native"' >> user.reg
-        echo '"*d3d12"="native"' >> user.reg
-        echo '"*dxgi"="native"' >> user.reg
+        [Software\\Microsoft\\Windows NT\\CurrentVersion]
+        "CurrentVersion"="10.0"
+        "CurrentBuild"="19041"
+        "ProductName"="Windows 10 Pro"
+        EOF
+        
+        # user.reg with DLL overrides
+        cat > user.reg << 'EOF'
+        WINE REGISTRY Version 2
+        ;; All keys relative to \\User\\S-1-5-21-0-0-0-1000
+        
+        [Software\\Wine\\DllOverrides]
+        "*d3d9"="native"
+        "*d3d10core"="native"
+        "*d3d11"="native"
+        "*d3d12"="native"
+        "*dxgi"="native"
+        EOF
         
         echo 'WINE REGISTRY Version 2' > userdef.reg
-        
         date +%s > .update-timestamp
         
         tar -cJf ../prefixPack.txz .
-        cd ..
-        rm -rf prefix_temp
-        
-        echo "=== Prefix pack created ==="
-        ls -lh prefixPack.txz
+        cd .. && rm -rf prefix_temp
     
     - name: Create WCP package
       run: |
-        BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
         VERSION_CODE=$(date +%Y%m%d)
+        BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
         
         mkdir -p "$OUT_DIR"
-        rm -rf wcp_package
-        mkdir -p wcp_package/bin
-        mkdir -p wcp_package/lib/wine/aarch64-unix
-        mkdir -p wcp_package/lib/wine/aarch64-windows
-        mkdir -p wcp_package/lib/wine/i386-windows
-        mkdir -p wcp_package/lib/wine/x86_64-windows
+        mkdir -p wcp_package/{bin,lib/wine/{aarch64-unix,aarch64-windows,i386-windows,x86_64-windows}}
         
-        if [ -d "wine-arm64ec/install/bin" ]; then
-          cp -r wine-arm64ec/install/bin/* wcp_package/bin/
-        fi
+        # Copy Wine ARM64EC
+        cp -r wine-arm64ec/install/bin/* wcp_package/bin/ 2>/dev/null || true
+        cp -r wine-arm64ec/install/lib/* wcp_package/lib/ 2>/dev/null || true
+        cp -r wine-arm64ec/install/share wcp_package/ 2>/dev/null || true
         
-        if [ -d "wine-arm64ec/install/lib" ]; then
-          cp -r wine-arm64ec/install/lib/* wcp_package/lib/
-        fi
+        # Copy FEX DLLs
+        find fex-dlls -name "*.dll" -exec cp {} wcp_package/lib/wine/aarch64-windows/ \; 2>/dev/null || true
         
-        if [ -d "wine-arm64ec/install/share" ]; then
-          cp -r wine-arm64ec/install/share wcp_package/
-        fi
-        
-        if [ -d "dxvk-2.7.1" ]; then
-          echo "Adding DXVK 2.7.1..."
+        # Copy DXVK
+        [ -d "dxvk-2.7.1" ] && {
           cp dxvk-2.7.1/x32/*.dll wcp_package/lib/wine/i386-windows/ 2>/dev/null || true
           cp dxvk-2.7.1/x64/*.dll wcp_package/lib/wine/x86_64-windows/ 2>/dev/null || true
-        fi
+        }
         
-        if [ -d "vkd3d-proton-3.0b" ]; then
-          echo "Adding VKD3D-Proton 3.0b..."
-          cp vkd3d-proton-3.0b/x86/*.dll wcp_package/lib/wine/i386-windows/ 2>/dev/null || true
-          cp vkd3d-proton-3.0b/x64/*.dll wcp_package/lib/wine/x86_64-windows/ 2>/dev/null || true
-        fi
+        # Copy VKD3D
+        VKD3D_DIR=$(ls -d vkd3d-proton-*/ 2>/dev/null | head -1)
+        [ -n "$VKD3D_DIR" ] && {
+          cp ${VKD3D_DIR}x86/*.dll wcp_package/lib/wine/i386-windows/ 2>/dev/null || true
+          cp ${VKD3D_DIR}x64/*.dll wcp_package/lib/wine/x86_64-windows/ 2>/dev/null || true
+        }
         
         cp prefixPack.txz wcp_package/
         
-        echo "{" > wcp_package/profile.json
-        echo "  \"type\": \"Wine\"," >> wcp_package/profile.json
-        echo "  \"versionName\": \"${VERSION_NAME}\"," >> wcp_package/profile.json
-        echo "  \"versionCode\": ${VERSION_CODE}," >> wcp_package/profile.json
-        echo "  \"description\": \"Proton 10.0-4 ARM64EC + DXVK 2.7.1 + VKD3D-Proton 3.0b for Winlator\"," >> wcp_package/profile.json
-        echo "  \"files\": []," >> wcp_package/profile.json
-        echo "  \"wine\": {" >> wcp_package/profile.json
-        echo "    \"binPath\": \"bin\"," >> wcp_package/profile.json
-        echo "    \"libPath\": \"lib\"," >> wcp_package/profile.json
-        echo "    \"prefixPack\": \"prefixPack.txz\"" >> wcp_package/profile.json
-        echo "  }" >> wcp_package/profile.json
-        echo "}" >> wcp_package/profile.json
+        # profile.json
+        cat > wcp_package/profile.json << EOF
+        {
+          "type": "Wine",
+          "versionName": "${VERSION_NAME}",
+          "versionCode": ${VERSION_CODE},
+          "description": "Wine ARM64EC + FEX + DXVK for Winlator",
+          "files": [],
+          "wine": {
+            "binPath": "bin",
+            "libPath": "lib",
+            "prefixPack": "prefixPack.txz"
+          }
+        }
+        EOF
         
-        echo "Proton 10.0-4 ARM64EC for Winlator" > wcp_package/README.txt
-        echo "Version: ${VERSION_NAME}" >> wcp_package/README.txt
-        echo "Build Date: ${BUILD_DATE}" >> wcp_package/README.txt
+        # README
+        cat > wcp_package/README.txt << EOF
+        Wine ARM64EC for Winlator
+        =========================
+        Version: ${VERSION_NAME}
+        Build Date: ${BUILD_DATE}
         
+        Components:
+        - Wine ARM64EC (bylaws fork)
+        - FEX-Emu Wine DLLs
+        - DXVK 2.7.1
+        - VKD3D-Proton 3.0b
+        
+        Based on FEX-Emu wiki instructions:
+        https://wiki.fex-emu.com/index.php/Development:ARM64EC
+        EOF
+        
+        # Create archive
         cd wcp_package
         tar -cJf "../${OUT_DIR}/${VERSION_NAME}.wcp" .
         cd ..
         
+        # Checksum
         cd "$OUT_DIR"
         sha256sum "${VERSION_NAME}.wcp" > "${VERSION_NAME}.wcp.sha256"
         
@@ -312,9 +336,9 @@ jobs:
         echo "=========================================="
         echo "File: ${VERSION_NAME}.wcp"
         echo "Size: $(du -h ${VERSION_NAME}.wcp | cut -f1)"
-        echo "=========================================="
+        echo "SHA256: $(cat ${VERSION_NAME}.wcp.sha256)"
     
-    - name: Upload WCP artifact
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.VERSION_NAME }}
@@ -323,9 +347,8 @@ jobs:
           ./out/*.sha256
         if-no-files-found: error
         retention-days: 90
-        compression-level: 0
     
-    - name: Upload build logs (on failure)
+    - name: Upload logs on failure
       if: failure()
       uses: actions/upload-artifact@v4
       with:
@@ -333,5 +356,5 @@ jobs:
         path: |
           wine-tools/config.log
           wine-arm64ec/config.log
+          wine-arm64ec/build.log
         if-no-files-found: ignore
-        retention-days: 7
