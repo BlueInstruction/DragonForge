@@ -51,6 +51,41 @@ jobs:
           flex bison autoconf automake libtool gettext \
           pkg-config cmake ninja-build python3 python3-pip meson \
           glslang-tools libvulkan-dev clang lld llvm
+          
+          build-essential \
+          git \
+          wget \
+          curl \
+          xz-utils \
+          zstd \
+          flex \
+          bison \
+          autoconf \
+          automake \
+          libtool \
+          gettext \
+          pkg-config \
+          cmake \
+          ninja-build \
+          python3 \
+          python3-pip \
+          meson \
+          glslang-tools \
+          libvulkan-dev \
+          libdrm-dev \
+          libudev-dev \
+          libgnutls28-dev \
+          libpulse-dev \
+          libasound2-dev \
+          libsdl2-dev \
+          libcups2-dev \
+          libusb-1.0-0-dev \
+          libunwind-dev \
+          libgstreamer1.0-dev \
+          libgstreamer-plugins-base1.0-dev \
+          clang \
+          lld \
+          llvm
         
         echo "=== Installed versions ==="
         clang --version | head -n1
