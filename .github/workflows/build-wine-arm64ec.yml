@@ -103,11 +103,11 @@ jobs:
 
       - name: Patch GStreamer compatibility
         run: |
-          cd wine-source
-          # Fix GstBufferMapInfo -> GstMapInfo
-          sed -i 's/GstBufferMapInfo/GstMapInfo/g' dlls/winegstreamer/media-converter/videoconv.c
-          echo "Patched videoconv.c - GstBufferMapInfo -> GstMapInfo"
-          grep -n "GstMapInfo" dlls/winegstreamer/media-converter/videoconv.c | head -5
+         cd wine-source
+         # Fix GstBufferMapInfo -> GstMapInfo in all affected files
+         sed -i 's/GstBufferMapInfo/GstMapInfo/g' dlls/winegstreamer/media-converter/videoconv.c
+         sed -i 's/GstBufferMapInfo/GstMapInfo/g' dlls/winegstreamer/wg_transform.c
+         echo "Patched GStreamer type compatibility"
 
       - name: Prepare Wine source
         run: |
