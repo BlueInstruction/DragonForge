@@ -141,6 +141,7 @@ jobs:
           --without-x \
           --without-freetype \
           --without-fontconfig \
+          --without-opencl \
           --disable-tests \
           --prefix="$PWD/install"
           cp ../wine-tools/nls/locale.nls nls/ 
