@@ -130,25 +130,26 @@ jobs:
 
       - name: Build Wine ARM64EC
         run: |
-          set -e
+          set -o pipefail
           export PATH="$TOOLCHAIN_DIR/bin:$PATH"
           mkdir wine-arm64ec
           cd wine-arm64ec
           ../wine-source/configure \
-            --enable-archs=arm64ec,aarch64,i386 \
-            --with-mingw=clang \
-            --with-wine-tools=../wine-tools \
-            --without-x \
-            --without-freetype \
-            --without-fontconfig \
-            --disable-tests \
-            --prefix="$PWD/install"
-          cp ../wine-tools/nls/locale.nls nls/
-          make -j$(nproc) 2>&1 | tee build.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "=== LAST 100 LINES OF BUILD LOG ==="
-            tail -100 build.log
-            exit 1
+          --enable-archs=arm64ec,aarch64,i386 \
+          --with-mingw=clang \
+          --with-wine-tools=../wine-tools \
+          --without-x \
+          --without-freetype \
+          --without-fontconfig \
+          --disable-tests \
+          --prefix="$PWD/install"
+          cp ../wine-tools/nls/locale.nls nls/ 
+          # Build and capture only last 5000 lines to avoid GitHub truncation
+          if ! make -j$(nproc) 2>&1 | tail -5000 | tee build.log; then
+          echo ""
+          echo "========== BUILD FAILED - LAST 200 LINES =========="
+          tail -200 build.log
+          exit 1
           fi
           make install
 
