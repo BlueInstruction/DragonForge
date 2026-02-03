@@ -177,9 +177,9 @@ jobs:
           cpu = 'aarch64'
           endian = 'little'
           EOF
-          meson setup build-arm64ec --cross-file crossfile-arm64ec.txt --buildtype release -Denable_tests=false
+          meson setup build-arm64ec --cross-file crossfile-arm64ec.txt --buildtype release -Denable_tests=false  
           ninja -C build-arm64ec
-
+    
       - name: Build VKD3D-Proton
         if: ${{ github.event.inputs.include_vkd3d == 'true' }}
         run: |
