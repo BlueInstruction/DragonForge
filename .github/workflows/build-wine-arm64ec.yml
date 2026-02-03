@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     
     steps:
-    - name: Checkout Winlator
+    - name: Checkout
       uses: actions/checkout@v4
 
     - name: Install System Dependencies
@@ -201,23 +201,23 @@ jobs:
 
     - name: Setup DXVK Cross-file
       run: |
-        cat > arm64ec-cross.txt << 'EOF'
-[binaries]
-ar = 'arm64ec-w64-mingw32-ar'
-c = 'arm64ec-w64-mingw32-gcc'
-cpp = 'arm64ec-w64-mingw32-g++'
-ld = 'arm64ec-w64-mingw32-ld'
-windres = 'arm64ec-w64-mingw32-windres'
-strip = 'strip'
-widl = 'arm64ec-w64-mingw32-widl'
-pkgconfig = 'aarch64-linux-gnu-pkg-config'
-
-[host_machine]
-system = 'windows'
-cpu_family = 'aarch64'
-cpu = 'aarch64'
-endian = 'little'
-EOF
+       cat > arm64ec-cross.txt << 'EOF'
+       [binaries]
+       ar = 'arm64ec-w64-mingw32-ar'
+       c = 'arm64ec-w64-mingw32-gcc'
+       cpp = 'arm64ec-w64-mingw32-g++'
+       ld = 'arm64ec-w64-mingw32-ld'
+       windres = 'arm64ec-w64-mingw32-windres'
+       strip = 'strip'
+       widl = 'arm64ec-w64-mingw32-widl'
+       pkgconfig = 'aarch64-linux-gnu-pkg-config'
+ 
+       [host_machine]
+       system = 'windows'
+       cpu_family = 'aarch64'
+       cpu = 'aarch64'
+       endian = 'little'
+       EOF
         echo "CROSS_FILE=$(pwd)/arm64ec-cross.txt" >> $GITHUB_ENV
 
     - name: Build DXVK
