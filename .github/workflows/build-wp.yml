@@ -160,7 +160,7 @@ jobs:
         run: |
           set -e
           export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-          git clone --depth 1 -b v2.5.3 https://github.com/doitsujin/dxvk.git
+          git clone --depth 1 -b v2.7.1 https://github.com/doitsujin/dxvk.git
           cd dxvk
           git submodule update --init --recursive
           cat > crossfile-arm64ec.txt << 'EOF'
