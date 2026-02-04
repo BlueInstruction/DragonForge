@@ -576,7 +576,7 @@ jobs:
             "type": "Wine",
             "versionName": "10.0-4-arm64ec",
             "versionCode": 0,
-            "description": "Proton 10.0-4 arm64ec for Winlator cmod bionic ludashi",
+            "description": "Proton 10.0-4 arm64ec for Winlator cmod versions",
             "files": [],
             "wine": {
               "binPath": "bin",
