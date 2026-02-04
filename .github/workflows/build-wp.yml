@@ -1,0 +1,632 @@
+name: Build Wine Arm64ec
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version name for the output file'
+        default: proton-10.0-4-arm64ec
+      include_dxvk:
+        description: 'Include DXVK'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+      include_vkd3d:
+        description: 'Include VKD3D-Proton'
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+env:
+  VERSION_NAME: ${{ github.event.inputs.version_name }}
+  OUT_DIR: ./out
+  TOOLCHAIN_DIR: /opt/llvm-mingw
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt clean
+          df -h
+
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt update
+          sudo apt install -y alsa-tools autoconf automake bison build-essential clang cmake curl flex gettext git glslang-tools jq libasound2-dev libcups2-dev libdbus-1-dev libdrm-dev libfaudio-dev libfontconfig1-dev libfreetype6-dev libgl1-mesa-dev libglu1-mesa-dev libgnutls28-dev libgphoto2-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libjpeg-dev libkrb5-dev liblcms2-dev libldap2-dev libmpg123-dev libopenal-dev libosmesa6-dev libpcap-dev libpng-dev libpulse-dev libsane-dev libsdl2-dev libssl-dev libtiff-dev libtool libudev-dev libunwind-dev libusb-1.0-0-dev libv4l-dev libvulkan-dev libx11-dev libxcb1-dev libxcomposite-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev libxinerama-dev libxml2-dev libxrandr-dev libxrender-dev libxslt1-dev libxxf86vm-dev lld llvm ninja-build ocl-icd-opencl-dev pkg-config python3 python3-pip wget wine64-tools xz-utils zstd
+          sudo pip3 install --upgrade meson
+          meson --version
+
+      - name: Setup LLVM MinGW toolchain
+        run: |
+          wget https://github.com/bylaws/llvm-mingw/releases/download/20250920/llvm-mingw-20250920-ucrt-ubuntu-22.04-x86_64.tar.xz -O llvm-mingw.tar.xz
+          sudo mkdir -p $TOOLCHAIN_DIR
+          sudo tar -C $TOOLCHAIN_DIR --strip-components=1 -xJf llvm-mingw.tar.xz
+          echo "$TOOLCHAIN_DIR/bin" >> $GITHUB_PATH
+
+      - name: Verify toolchain
+        run: |
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          arm64ec-w64-mingw32-clang --version || { echo "arm64ec clang missing"; exit 1; }
+          aarch64-w64-mingw32-clang --version || { echo "aarch64 clang missing"; exit 1; }
+
+      - name: Clone FEX with submodules
+        run: |
+          git clone --recursive https://github.com/FEX-Emu/FEX.git fex-source
+          cd fex-source
+          git submodule update --init --recursive --depth 1
+
+      - name: Build FEX ARM64EC
+        run: |
+          set -e
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          cd fex-source
+          mkdir build-arm64ec
+          cd build-arm64ec
+          cmake -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=../Data/CMake/toolchain_mingw.cmake \
+            -DCMAKE_INSTALL_LIBDIR=/usr/lib/wine/aarch64-windows \
+            -DENABLE_LTO=False \
+            -DMINGW_TRIPLE=arm64ec-w64-mingw32 \
+            -DBUILD_TESTING=False \
+            -DENABLE_JEMALLOC=False \
+            -DENABLE_JEMALLOC_GLIBC_ALLOC=False \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DTUNE_CPU=none \
+            ..
+          ninja
+          sudo ninja install
+
+      - name: Build FEX WOW64
+        run: |
+          set -e
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          cd fex-source
+          mkdir build-wow64
+          cd build-wow64
+          cmake -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=../Data/CMake/toolchain_mingw.cmake \
+            -DCMAKE_INSTALL_LIBDIR=/usr/lib/wine/aarch64-windows \
+            -DENABLE_LTO=False \
+            -DMINGW_TRIPLE=aarch64-w64-mingw32 \
+            -DBUILD_TESTING=False \
+            -DENABLE_JEMALLOC=False \
+            -DENABLE_JEMALLOC_GLIBC_ALLOC=False \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DTUNE_CPU=none \
+            ..
+          ninja
+          sudo ninja install
+
+      - name: Clone Wine
+        run: |
+          git clone --depth 1 -b arm64ec https://github.com/bylaws/wine.git wine-source
+
+      - name: Patch GStreamer compatibility
+        run: |
+          cd wine-source
+          find . -name "*.c" -exec grep -l "GstBufferMapInfo" {} \; 2>/dev/null | while read f; do
+            sed -i 's/GstBufferMapInfo/GstMapInfo/g' "$f"
+          done || true
+
+      - name: Prepare Wine source
+        run: |
+          set -e
+          cd wine-source
+          autoreconf -fiv
+          tools/make_requests
+          tools/make_specfiles
+          dlls/winevulkan/make_vulkan
+
+      - name: Build Wine tools
+        run: |
+          set -e
+          mkdir wine-tools
+          cd wine-tools
+          ../wine-source/configure --enable-win64 --without-x --without-freetype --without-fontconfig --disable-tests
+          make -j$(nproc) __tooldeps__
+          make -j$(nproc) nls/locale.nls
+
+      - name: Build Wine ARM64EC
+        run: |
+          set -o pipefail
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          mkdir wine-arm64ec
+          cd wine-arm64ec
+          ../wine-source/configure \
+            --enable-archs=arm64ec,aarch64,i386 \
+            --with-mingw=clang \
+            --with-wine-tools=../wine-tools \
+            --without-x \
+            --without-freetype \
+            --without-fontconfig \
+            --without-opencl \
+            --disable-tests \
+            --prefix="$PWD/install"
+          cp ../wine-tools/nls/locale.nls nls/
+          if ! make -j$(nproc) 2>&1 | tail -5000 | tee build.log; then
+            tail -200 build.log
+            exit 1
+          fi
+          make install
+
+      - name: Build DXVK
+        if: ${{ github.event.inputs.include_dxvk == 'true' }}
+        run: |
+          set -e
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          git clone --depth 1 -b v2.5.3 https://github.com/doitsujin/dxvk.git
+          cd dxvk
+          git submodule update --init --recursive
+          cat > crossfile-arm64ec.txt << 'EOF'
+          [binaries]
+          ar = 'arm64ec-w64-mingw32-ar'
+          c = 'arm64ec-w64-mingw32-clang'
+          cpp = 'arm64ec-w64-mingw32-clang++'
+          ld = 'arm64ec-w64-mingw32-ld'
+          windres = 'arm64ec-w64-mingw32-windres'
+          strip = 'arm64ec-w64-mingw32-strip'
+          widl = 'arm64ec-w64-mingw32-widl'
+          [host_machine]
+          system = 'windows'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+          EOF
+          meson setup build-arm64ec --cross-file crossfile-arm64ec.txt --buildtype release
+          ninja -C build-arm64ec
+
+      - name: Build VKD3D-Proton
+        if: ${{ github.event.inputs.include_vkd3d == 'true' }}
+        run: |
+          set -e
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          git clone --depth 1 -b v3.0b https://github.com/HansKristian-Work/vkd3d-proton.git
+          cd vkd3d-proton
+          git submodule update --init --recursive
+          cat > crossfile-arm64ec.txt << 'EOF'
+          [binaries]
+          ar = 'arm64ec-w64-mingw32-ar'
+          c = 'arm64ec-w64-mingw32-clang'
+          cpp = 'arm64ec-w64-mingw32-clang++'
+          ld = 'arm64ec-w64-mingw32-ld'
+          windres = 'arm64ec-w64-mingw32-windres'
+          strip = 'arm64ec-w64-mingw32-strip'
+          widl = 'arm64ec-w64-mingw32-widl'
+          [host_machine]
+          system = 'windows'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+          EOF
+          meson setup build-arm64ec --cross-file crossfile-arm64ec.txt --buildtype release
+          ninja -C build-arm64ec
+
+      - name: Create Wine prefix pack
+        run: |
+          set -e
+          mkdir -p prefix_temp/.wine/dosdevices
+          mkdir -p prefix_temp/.wine/drive_c/windows/system32
+          mkdir -p prefix_temp/.wine/drive_c/windows/syswow64
+          mkdir -p prefix_temp/.wine/drive_c/windows/command
+          mkdir -p prefix_temp/.wine/drive_c/windows/Fonts
+          mkdir -p prefix_temp/.wine/drive_c/windows/globalization
+          mkdir -p prefix_temp/.wine/drive_c/windows/help
+          mkdir -p prefix_temp/.wine/drive_c/windows/inf
+          mkdir -p prefix_temp/.wine/drive_c/windows/logs
+          mkdir -p prefix_temp/.wine/drive_c/windows/performance
+          mkdir -p prefix_temp/.wine/drive_c/windows/resources
+          mkdir -p prefix_temp/.wine/drive_c/windows/security
+          mkdir -p prefix_temp/.wine/drive_c/windows/system
+          mkdir -p prefix_temp/.wine/drive_c/windows/tasks
+          mkdir -p prefix_temp/.wine/drive_c/windows/temp
+          mkdir -p prefix_temp/.wine/drive_c/windows/twain_32
+          mkdir -p prefix_temp/.wine/drive_c/windows/twain_64
+          mkdir -p prefix_temp/.wine/drive_c/windows/winsxs
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/AppData/Local/Microsoft/Windows/INetCache
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/AppData/Local/Microsoft/Windows/INetCookies
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/AppData/Local/Microsoft/Windows/History
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/AppData/Local/Temp
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/AppData/LocalLow
+          mkdir -p "prefix_temp/.wine/drive_c/users/xuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Administrative Tools"
+          mkdir -p "prefix_temp/.wine/drive_c/users/xuser/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/StartUp"
+          mkdir -p "prefix_temp/.wine/drive_c/users/xuser/AppData/Roaming/Microsoft/Windows/Network Shortcuts"
+          mkdir -p "prefix_temp/.wine/drive_c/users/xuser/AppData/Roaming/Microsoft/Windows/Printer Shortcuts"
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/AppData/Roaming/Microsoft/Windows/Recent
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/AppData/Roaming/Microsoft/Windows/SendTo
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/AppData/Roaming/Microsoft/Windows/Templates
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Contacts
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Desktop
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Documents
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Downloads
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Favorites
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Links
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Music
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Pictures
+          mkdir -p "prefix_temp/.wine/drive_c/users/xuser/Saved Games"
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Searches
+          mkdir -p prefix_temp/.wine/drive_c/users/xuser/Videos
+          mkdir -p prefix_temp/.wine/drive_c/users/Public/Temp
+          mkdir -p prefix_temp/.wine/drive_c/users/Public/Desktop
+          mkdir -p prefix_temp/.wine/drive_c/users/Public/Documents
+          mkdir -p "prefix_temp/.wine/drive_c/Program Files/Common Files/System/ADO"
+          mkdir -p "prefix_temp/.wine/drive_c/Program Files/Internet Explorer"
+          mkdir -p "prefix_temp/.wine/drive_c/Program Files/Windows Media Player"
+          mkdir -p "prefix_temp/.wine/drive_c/Program Files/Windows NT"
+          mkdir -p "prefix_temp/.wine/drive_c/Program Files (x86)/Common Files"
+          mkdir -p "prefix_temp/.wine/drive_c/Program Files (x86)/Internet Explorer"
+          mkdir -p "prefix_temp/.wine/drive_c/Program Files (x86)/Windows Media Player"
+          mkdir -p "prefix_temp/.wine/drive_c/Program Files (x86)/Windows NT"
+          mkdir -p prefix_temp/.wine/drive_c/ProgramData/Microsoft
+          mkdir -p "prefix_temp/.wine/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs"
+          mkdir -p "prefix_temp/.wine/drive_c/ProgramData/Microsoft/Windows/Start Menu/Programs/StartUp"
+          mkdir -p prefix_temp/.wine/drive_c/ProgramData/Microsoft/Windows/Templates
+          cd prefix_temp/.wine/dosdevices
+          ln -s ../drive_c c:
+          ln -s /sdcard d:
+          ln -s /storage e:
+          ln -s / z:
+          cd ../../..
+          cat > prefix_temp/.wine/system.reg << 'SYSREG'
+          WINE REGISTRY Version 2
+          ;; All keys relative to \\Machine
+
+          #arch=win64
+
+          [Software\\Microsoft\\Windows NT\\CurrentVersion] 1700000000
+          #time=1dbffe81de72006
+          "CurrentVersion"="10.0"
+          "CurrentBuild"="19041"
+          "CurrentBuildNumber"="19041"
+          "ProductName"="Windows 10 Pro"
+          "CSDVersion"=""
+          "CurrentType"="Multiprocessor Free"
+          "InstallDate"=dword:00000000
+          "ProductId"="00000-00000-00000-00000"
+          "RegisteredOrganization"=""
+          "RegisteredOwner"="xuser"
+          "SoftwareType"="System"
+          "SystemRoot"="C:\\windows"
+
+          [Software\\Microsoft\\Windows\\CurrentVersion] 1700000000
+          #time=1dbffe81de72006
+          "CommonFilesDir"="C:\\Program Files\\Common Files"
+          "DevicePath"="C:\\windows\\inf"
+          "MediaPath"="C:\\windows\\Media"
+          "MediaPathUnexpanded"=str(2):"%SystemRoot%\\Media"
+          "ProgramFilesDir"="C:\\Program Files"
+          "ProgramFilesPath"=str(2):"%ProgramFiles%"
+          "SM_ConfigureProgramsName"="Set Program Access and Defaults"
+
+          [Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders] 1700000000
+          #time=1dbffe81de72006
+          "Common AppData"="C:\\ProgramData"
+          "Common Desktop"="C:\\users\\Public\\Desktop"
+          "Common Documents"="C:\\users\\Public\\Documents"
+          "Common Programs"="C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs"
+          "Common Start Menu"="C:\\ProgramData\\Microsoft\\Windows\\Start Menu"
+          "Common Startup"="C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp"
+          "Common Templates"="C:\\ProgramData\\Microsoft\\Windows\\Templates"
+
+          [System\\CurrentControlSet\\Control\\Session Manager\\Environment] 1700000000
+          #time=1dbffe81de72006
+          "ComSpec"=str(2):"C:\\windows\\system32\\cmd.exe"
+          "NUMBER_OF_PROCESSORS"="8"
+          "OS"="Windows_NT"
+          "Path"=str(2):"C:\\windows\\system32;C:\\windows;C:\\windows\\system32\\wbem"
+          "PATHEXT"=".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC"
+          "PROCESSOR_ARCHITECTURE"="ARM64"
+          "PROCESSOR_IDENTIFIER"="ARM64 Family"
+          "PROCESSOR_LEVEL"="8"
+          "PROCESSOR_REVISION"="0000"
+          "SystemDrive"="C:"
+          "SystemRoot"="C:\\windows"
+          "TEMP"=str(2):"%SystemRoot%\\TEMP"
+          "TMP"=str(2):"%SystemRoot%\\TEMP"
+          "windir"="C:\\windows"
+
+          [Software\\Classes\\.reg] 1700000000
+          #time=1dbffe81de72006
+          @="REGfile"
+          "Content Type"="application/reg"
+
+          [Software\\Classes\\REGfile\\Shell\\Open\\command] 1700000000
+          #time=1dbffe81de72006
+          @="C:\\windows\\regedit.exe /C \"%1\""
+
+          [Software\\Classes\\dllfile\\DefaultIcon] 1700000000
+          #time=1dbffe81de72006
+          @="shell32.dll,-154"
+
+          [Software\\Classes\\lnkfile\\DefaultIcon] 1700000000
+          #time=1dbffe81de72006
+          @="shell32.dll,-30"
+
+          [Software\\Classes\\inifile\\DefaultIcon] 1700000000
+          #time=1dbffe81de72006
+          @="shell32.dll,-151"
+          SYSREG
+          cat > prefix_temp/.wine/user.reg << 'USERREG'
+          WINE REGISTRY Version 2
+          ;; All keys relative to \\User\\S-1-5-21-0-0-0-1000
+
+          #arch=win64
+
+          [Control Panel\\Desktop] 1700000000
+          #time=1dbffe81eba959e
+          "DragFullWindows"="0"
+          "FontSmoothing"="2"
+          "FontSmoothingGamma"=dword:00000000
+          "FontSmoothingOrientation"=dword:00000001
+          "FontSmoothingType"=dword:00000001
+          "MenuShowDelay"="400"
+          "UserPreferencesMask"=hex:30,00,02,80,12,00,00,00
+          "Wallpaper"=""
+          "WheelScrollChars"="3"
+          "WheelScrollLines"="3"
+
+          [Control Panel\\International] 1700000000
+          #time=1dbffe818700598
+          "Locale"="00000409"
+          "LocaleName"="en-US"
+          "sCountry"="United States"
+          "sLanguage"="ENU"
+
+          [Environment] 1700000000
+          #time=1dbffe81cbda984
+          "TEMP"="C:\\users\\xuser\\AppData\\Local\\Temp"
+          "TMP"="C:\\users\\xuser\\AppData\\Local\\Temp"
+
+          [Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders] 1700000000
+          #time=1dbffe81cb8561e
+          "Administrative Tools"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Administrative Tools"
+          "AppData"="C:\\users\\xuser\\AppData\\Roaming"
+          "Cache"="C:\\users\\xuser\\AppData\\Local\\Microsoft\\Windows\\INetCache"
+          "Cookies"="C:\\users\\xuser\\AppData\\Local\\Microsoft\\Windows\\INetCookies"
+          "Desktop"="C:\\users\\xuser\\Desktop"
+          "Favorites"="C:\\users\\xuser\\Favorites"
+          "Fonts"="C:\\windows\\Fonts"
+          "History"="C:\\users\\xuser\\AppData\\Local\\Microsoft\\Windows\\History"
+          "Local AppData"="C:\\users\\xuser\\AppData\\Local"
+          "My Music"="C:\\users\\xuser\\Music"
+          "My Pictures"="C:\\users\\xuser\\Pictures"
+          "My Videos"="C:\\users\\xuser\\Videos"
+          "NetHood"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Network Shortcuts"
+          "Personal"="C:\\users\\xuser\\Documents"
+          "PrintHood"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Printer Shortcuts"
+          "Programs"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs"
+          "Recent"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Recent"
+          "SendTo"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\SendTo"
+          "Start Menu"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu"
+          "StartUp"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp"
+          "Templates"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Templates"
+          "{374DE290-123F-4565-9164-39C4925E467B}"="C:\\users\\xuser\\Downloads"
+          "{4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}"="C:\\users\\xuser\\Saved Games"
+          "{56784854-C6CB-462B-8169-88E350ACB882}"="C:\\users\\xuser\\Contacts"
+          "{7D1D3A04-DEBB-4115-95CF-2F29DA2920DA}"="C:\\users\\xuser\\Searches"
+          "{A520A1A4-1780-4FF6-BD18-167343C5AF16}"="C:\\users\\xuser\\AppData\\LocalLow"
+          "{BFB9D5E0-C6A9-404C-B2B2-AE6DB6AF4968}"="C:\\users\\xuser\\Links"
+
+          [Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders] 1700000000
+          #time=1dbffe81cb85880
+          "__WineVistaPaths"=dword:00000001
+          "Administrative Tools"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Administrative Tools"
+          "AppData"=str(2):"%USERPROFILE%\\AppData\\Roaming"
+          "Cache"=str(2):"%USERPROFILE%\\AppData\\Local\\Microsoft\\Windows\\INetCache"
+          "Cookies"=str(2):"%USERPROFILE%\\AppData\\Local\\Microsoft\\Windows\\INetCookies"
+          "Desktop"=str(2):"%USERPROFILE%\\Desktop"
+          "Favorites"=str(2):"%USERPROFILE%\\Favorites"
+          "Fonts"=str(2):"C:\\windows\\Fonts"
+          "History"=str(2):"%USERPROFILE%\\AppData\\Local\\Microsoft\\Windows\\History"
+          "Local AppData"=str(2):"%USERPROFILE%\\AppData\\Local"
+          "My Music"=str(2):"%USERPROFILE%\\Music"
+          "My Pictures"=str(2):"%USERPROFILE%\\Pictures"
+          "My Videos"=str(2):"%USERPROFILE%\\Videos"
+          "NetHood"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Network Shortcuts"
+          "Personal"=str(2):"%USERPROFILE%\\Documents"
+          "PrintHood"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Printer Shortcuts"
+          "Programs"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs"
+          "Recent"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Recent"
+          "SendTo"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\SendTo"
+          "Start Menu"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu"
+          "StartUp"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp"
+          "Templates"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Templates"
+          "{374DE290-123F-4565-9164-39C4925E467B}"=str(2):"%USERPROFILE%\\Downloads"
+          "{4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}"=str(2):"%USERPROFILE%\\Saved Games"
+          "{56784854-C6CB-462B-8169-88E350ACB882}"=str(2):"%USERPROFILE%\\Contacts"
+          "{7D1D3A04-DEBB-4115-95CF-2F29DA2920DA}"=str(2):"%USERPROFILE%\\Searches"
+          "{A520A1A4-1780-4FF6-BD18-167343C5AF16}"=str(2):"%USERPROFILE%\\AppData\\LocalLow"
+          "{BFB9D5E0-C6A9-404C-B2B2-AE6DB6AF4968}"=str(2):"%USERPROFILE%\\Links"
+
+          [Software\\Wine\\DllOverrides] 1700000000
+          #time=1dbffe81de72006
+          "*d3d8"="native"
+          "*d3d9"="native"
+          "*d3d10"="native"
+          "*d3d10_1"="native"
+          "*d3d10core"="native"
+          "*d3d11"="native"
+          "*d3d12"="native"
+          "*d3d12core"="native"
+          "*dxgi"="native"
+          "*dinput"="builtin,native"
+          "*dinput8"="builtin,native"
+          "*xinput1_1"="builtin,native"
+          "*xinput1_2"="builtin,native"
+          "*xinput1_3"="builtin,native"
+          "*xinput1_4"="builtin,native"
+          "*xinput9_1_0"="builtin,native"
+          "*xinputuap"="builtin,native"
+          USERREG
+          cat > prefix_temp/.wine/userdef.reg << 'USERDEFREG'
+          WINE REGISTRY Version 2
+          ;; All keys relative to \\User\\.Default
+
+          #arch=win64
+
+          [Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders] 1700000000
+          #time=1dbffe81cb6ef04
+          "Administrative Tools"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Administrative Tools"
+          "AppData"="C:\\users\\xuser\\AppData\\Roaming"
+          "Cache"="C:\\users\\xuser\\AppData\\Local\\Microsoft\\Windows\\INetCache"
+          "Cookies"="C:\\users\\xuser\\AppData\\Local\\Microsoft\\Windows\\INetCookies"
+          "Desktop"="C:\\users\\xuser\\Desktop"
+          "Favorites"="C:\\users\\xuser\\Favorites"
+          "Fonts"="C:\\windows\\Fonts"
+          "History"="C:\\users\\xuser\\AppData\\Local\\Microsoft\\Windows\\History"
+          "Local AppData"="C:\\users\\xuser\\AppData\\Local"
+          "My Music"="C:\\users\\xuser\\Music"
+          "My Pictures"="C:\\users\\xuser\\Pictures"
+          "My Videos"="C:\\users\\xuser\\Videos"
+          "NetHood"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Network Shortcuts"
+          "Personal"="C:\\users\\xuser\\Documents"
+          "PrintHood"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Printer Shortcuts"
+          "Programs"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs"
+          "Recent"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Recent"
+          "SendTo"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\SendTo"
+          "Start Menu"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu"
+          "StartUp"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp"
+          "Templates"="C:\\users\\xuser\\AppData\\Roaming\\Microsoft\\Windows\\Templates"
+          "{374DE290-123F-4565-9164-39C4925E467B}"="C:\\users\\xuser\\Downloads"
+          "{4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}"="C:\\users\\xuser\\Saved Games"
+          "{56784854-C6CB-462B-8169-88E350ACB882}"="C:\\users\\xuser\\Contacts"
+          "{7D1D3A04-DEBB-4115-95CF-2F29DA2920DA}"="C:\\users\\xuser\\Searches"
+          "{A520A1A4-1780-4FF6-BD18-167343C5AF16}"="C:\\users\\xuser\\AppData\\LocalLow"
+          "{BFB9D5E0-C6A9-404C-B2B2-AE6DB6AF4968}"="C:\\users\\xuser\\Links"
+
+          [Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\User Shell Folders] 1700000000
+          #time=1dbffe81cb6f18e
+          "__WineVistaPaths"=dword:00000001
+          "Administrative Tools"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Administrative Tools"
+          "AppData"=str(2):"%USERPROFILE%\\AppData\\Roaming"
+          "Cache"=str(2):"%USERPROFILE%\\AppData\\Local\\Microsoft\\Windows\\INetCache"
+          "Cookies"=str(2):"%USERPROFILE%\\AppData\\Local\\Microsoft\\Windows\\INetCookies"
+          "Desktop"=str(2):"%USERPROFILE%\\Desktop"
+          "Favorites"=str(2):"%USERPROFILE%\\Favorites"
+          "Fonts"=str(2):"C:\\windows\\Fonts"
+          "History"=str(2):"%USERPROFILE%\\AppData\\Local\\Microsoft\\Windows\\History"
+          "Local AppData"=str(2):"%USERPROFILE%\\AppData\\Local"
+          "My Music"=str(2):"%USERPROFILE%\\Music"
+          "My Pictures"=str(2):"%USERPROFILE%\\Pictures"
+          "My Videos"=str(2):"%USERPROFILE%\\Videos"
+          "NetHood"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Network Shortcuts"
+          "Personal"=str(2):"%USERPROFILE%\\Documents"
+          "PrintHood"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Printer Shortcuts"
+          "Programs"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs"
+          "Recent"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Recent"
+          "SendTo"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\SendTo"
+          "Start Menu"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu"
+          "StartUp"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp"
+          "Templates"=str(2):"%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Templates"
+          "{374DE290-123F-4565-9164-39C4925E467B}"=str(2):"%USERPROFILE%\\Downloads"
+          "{4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}"=str(2):"%USERPROFILE%\\Saved Games"
+          "{56784854-C6CB-462B-8169-88E350ACB882}"=str(2):"%USERPROFILE%\\Contacts"
+          "{7D1D3A04-DEBB-4115-95CF-2F29DA2920DA}"=str(2):"%USERPROFILE%\\Searches"
+          "{A520A1A4-1780-4FF6-BD18-167343C5AF16}"=str(2):"%USERPROFILE%\\AppData\\LocalLow"
+          "{BFB9D5E0-C6A9-404C-B2B2-AE6DB6AF4968}"=str(2):"%USERPROFILE%\\Links"
+          USERDEFREG
+          date +%s > prefix_temp/.wine/.update-timestamp
+          cd prefix_temp
+          tar -cJf ../prefixPack.txz .wine
+          cd ..
+          rm -rf prefix_temp
+
+      - name: Package WCP
+        run: |
+          set -e
+          mkdir -p ${OUT_DIR}
+          mkdir -p wcp_package/bin
+          mkdir -p wcp_package/lib/wine/aarch64-unix
+          mkdir -p wcp_package/lib/wine/aarch64-windows
+          mkdir -p wcp_package/lib/wine/i386-windows
+          mkdir -p wcp_package/share/wine/fonts
+          mkdir -p wcp_package/share/wine/nls
+          cp -r wine-arm64ec/install/bin/* wcp_package/bin/ 2>/dev/null || true
+          cp -r wine-arm64ec/install/lib/wine/aarch64-unix/* wcp_package/lib/wine/aarch64-unix/ 2>/dev/null || true
+          cp -r wine-arm64ec/install/lib/wine/aarch64-windows/* wcp_package/lib/wine/aarch64-windows/ 2>/dev/null || true
+          cp -r wine-arm64ec/install/lib/wine/i386-windows/* wcp_package/lib/wine/i386-windows/ 2>/dev/null || true
+          if [ -d "wine-arm64ec/install/lib/wine/x86_64-unix" ]; then
+            cp -r wine-arm64ec/install/lib/wine/x86_64-unix/* wcp_package/lib/wine/aarch64-unix/ 2>/dev/null || true
+          fi
+          cp -r wine-arm64ec/install/share/wine/fonts/* wcp_package/share/wine/fonts/ 2>/dev/null || true
+          cp -r wine-arm64ec/install/share/wine/nls/* wcp_package/share/wine/nls/ 2>/dev/null || true
+          cp wine-arm64ec/install/share/wine/wine.inf wcp_package/share/wine/ 2>/dev/null || true
+          cp /usr/lib/wine/aarch64-windows/*.dll wcp_package/lib/wine/aarch64-windows/ 2>/dev/null || true
+          find fex-source/build-arm64ec -name "*.dll" -exec cp {} wcp_package/lib/wine/aarch64-windows/ \; 2>/dev/null || true
+          find fex-source/build-wow64 -name "*.dll" -exec cp {} wcp_package/lib/wine/aarch64-windows/ \; 2>/dev/null || true
+          if [ "${{ github.event.inputs.include_dxvk }}" = "true" ]; then
+            find dxvk/build-arm64ec -name "*.dll" -exec cp {} wcp_package/lib/wine/aarch64-windows/ \; 2>/dev/null || true
+          fi
+          if [ "${{ github.event.inputs.include_vkd3d }}" = "true" ]; then
+            find vkd3d-proton/build-arm64ec -name "*.dll" -exec cp {} wcp_package/lib/wine/aarch64-windows/ \; 2>/dev/null || true
+          fi
+          rm -rf wcp_package/include
+          rm -rf wcp_package/share/applications
+          rm -rf wcp_package/share/man
+          rm -f wcp_package/lib/*.a
+          find wcp_package/lib -name "*.a" -delete 2>/dev/null || true
+          cp prefixPack.txz wcp_package/
+          cat > wcp_package/profile.json << 'EOF'
+          {
+            "type": "Wine",
+            "versionName": "10.0-4-arm64ec",
+            "versionCode": 0,
+            "description": "Proton 10.0-4 arm64ec for Winlator cmod bionic ludashi",
+            "files": [],
+            "wine": {
+              "binPath": "bin",
+              "libPath": "lib",
+              "prefixPack": "prefixPack.txz"
+            }
+          }
+          EOF
+          cd wcp_package
+          tar -cJf "../${OUT_DIR}/${VERSION_NAME}.wcp" .
+          cd ..
+          cd ${OUT_DIR}
+          sha256sum "${VERSION_NAME}.wcp" > "${VERSION_NAME}.wcp.sha256"
+
+      - name: Verify package
+        run: |
+          echo "Package contents:"
+          tar -tJf "${OUT_DIR}/${VERSION_NAME}.wcp" | head -100
+          echo ""
+          echo "Verification:"
+          tar -tJf "${OUT_DIR}/${VERSION_NAME}.wcp" | grep -q "profile.json" && echo "profile.json found"
+          tar -tJf "${OUT_DIR}/${VERSION_NAME}.wcp" | grep -q "prefixPack.txz" && echo "prefixPack.txz found"
+          tar -tJf "${OUT_DIR}/${VERSION_NAME}.wcp" | grep -q "bin/" && echo "bin/ found"
+          tar -tJf "${OUT_DIR}/${VERSION_NAME}.wcp" | grep -q "lib/wine/aarch64-windows" && echo "lib/wine/aarch64-windows found"
+          tar -tJf "${OUT_DIR}/${VERSION_NAME}.wcp" | grep -q "lib/wine/aarch64-unix" && echo "lib/wine/aarch64-unix found"
+          tar -tJf "${OUT_DIR}/${VERSION_NAME}.wcp" | grep -q "lib/wine/i386-windows" && echo "lib/wine/i386-windows found"
+          tar -tJf "${OUT_DIR}/${VERSION_NAME}.wcp" | grep -q "share/wine" && echo "share/wine found"
+          echo ""
+          echo "Package size:"
+          ls -lh "${OUT_DIR}/${VERSION_NAME}.wcp"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.VERSION_NAME }}
+          path: |
+            ./out/*.wcp
+            ./out/*.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_number }}
+          path: |
+            wine-tools/config.log
+            wine-arm64ec/config.log
+            wine-arm64ec/build.log
+            fex-source/build-arm64ec/CMakeFiles/CMakeError.log
+            fex-source/build-wow64/CMakeFiles/CMakeError.log
+          if-no-files-found: ignore
