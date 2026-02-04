@@ -60,15 +60,15 @@ jobs:
           libxi-dev libxinerama-dev libxml2-dev \
           libxrandr-dev libxrender-dev libxslt1-dev \
           libxxf86vm-dev linux-libc-dev ocl-icd-opencl-dev \
-          cmake ninja-build meson glslang-tools \
+          cmake ninjadev-build meson glslang-tools \
           python3 python3-pip wget xz-utils zstd jq
-          # Install 32-bit packages separately
+          # Install 32-bit packages separately (excluding krb5-multidev)
           sudo apt install -y \
           libasound2-dev:i386 libcups2-dev:i386 \
           libdbus-1-dev:i386 libfontconfig-dev:i386 \
           libfreetype-dev:i386 libgl-dev:i386 \
           libgnutls28-dev:i386 libjpeg-dev:i386 \
-          libkrb5-dev:i386 libmpg123-dev:i386 \
+          libmpg123-dev:i386 \
           libopenal-dev:i386 libpcap-dev:i386 \
           libpng-dev:i386 libpulse-dev:i386 \
           libsdl2-dev:i386 libudev-dev:i386 \
@@ -79,8 +79,7 @@ jobs:
           libxi-dev:i386 libxinerama-dev:i386 \
           libxml2-dev:i386 libxrandr-dev:i386 \
           libxrender-dev:i386 libxslt1-dev:i386 \
-          libxxf86vm-dev:i386 linux-libc-dev:i386    
-          sudo pip3 install --upgrade meson 
+          libxxf86vm-dev:i386 linux-libc-dev:i386
    
       - name: Clone Wine Proton
         run: |
