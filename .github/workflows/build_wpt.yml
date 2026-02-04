@@ -104,6 +104,15 @@ jobs:
         run: |
           git clone --depth 1 -b ${{ github.event.inputs.wine_branch }} https://github.com/ValveSoftware/wine.git wine-source
 
+      - name: Fix GStreamer compatibility
+        run: |
+          cd wine-source
+          # Fix GstBufferMapInfo -> GstMapInfo (Ubuntu 22.04 GStreamer compatibility)
+          find . -name "*.c" -exec grep -l "GstBufferMapInfo" {} \; 2>/dev/null | while read file; do
+          sed -i 's/GstBufferMapInfo/GstMapInfo/g' "$file"
+          echo "Fixed GstBufferMapInfo in $file"
+          done || true
+
       - name: Apply OpenCL patch
         run: |
           cd wine-source
@@ -113,7 +122,6 @@ jobs:
       - name: Prepare Wine source
         run: |
           cd wine-source
-          # Run Wine's build preparation scripts (from Kron4ek)
           dlls/winevulkan/make_vulkan || true
           tools/make_requests || true
           tools/make_specfiles || true
