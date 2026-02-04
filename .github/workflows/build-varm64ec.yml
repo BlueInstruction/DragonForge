@@ -124,8 +124,8 @@ jobs:
           ]
 
           dev = [
-              (r'(data->HighestShaderModel\s*=\s*)[^;]+;', r'\g<1>D3D_SHADER_MODEL_6_8;'),
-              (r'(info\.HighestShaderModel\s*=\s*)[^;]+;', r'\g<1>D3D_SHADER_MODEL_6_8;'),
+              (r'(data->HighestShaderModel\s*=\s*)[^;]+;', r'\g<1>D3D_SHADER_MODEL_6_7;'),
+              (r'(info\.HighestShaderModel\s*=\s*)[^;]+;', r'\g<1>D3D_SHADER_MODEL_6_7;'),
               (r'(MaxSupportedFeatureLevel\s*=\s*)[^;]+;', r'\g<1>D3D_FEATURE_LEVEL_12_2;'),
               (r'(options1\.WaveOps\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options1\.WaveLaneCountMin\s*=\s*)[^;]+;', r'\g<1>32;'),
@@ -242,11 +242,6 @@ jobs:
           # Copy to syswow64 (32-bit)
           find src/build-arm64ec -name "*.dll" -type f -exec cp {} pkg/syswow64/ \;
           
-          cp checksums.txt pkg/
-          if [[ -f patch-report.json ]]; then
-            cp patch-report.json pkg/
-          fi
-          
           # List what we're packaging
           echo "=== Package contents ==="
           ls -la pkg/system32/
@@ -282,8 +277,6 @@ jobs:
           name: ${{ env.PKG }}
           path: |
             ${{ env.PKG }}.wcp
-            checksums.txt
-            patch-report.json
           retention-days: 30
           compression-level: 9
 
