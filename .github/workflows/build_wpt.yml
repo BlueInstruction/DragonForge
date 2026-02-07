@@ -97,6 +97,13 @@ jobs:
           linux-libc-dev:i386          
           sudo pip3 install --upgrade meson
 
+      - name: Configure MinGW for POSIX threading
+        run: |
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix
+          sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix
+
       - name: Clone Wine Proton
         run: |
           git clone --depth 1 -b ${{ github.event.inputs.wine_branch }} https://github.com/ValveSoftware/wine.git wine-source
