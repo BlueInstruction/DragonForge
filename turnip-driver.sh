@@ -173,8 +173,8 @@ cpu = 'armv8'
 endian = 'little'
 
 [built-in options]
-c_args = ['-O2', '-DNDEBUG', '-Wno-error']
-cpp_args = ['-O2', '-DNDEBUG', '-Wno-error', '-Wno-c++11-narrowing']
+c_args = ['-O3', '-DNDEBUG', '-Wno-error']
+cpp_args = ['-O3', '-DNDEBUG', '-Wno-error', '-Wno-c++11-narrowing']
 EOF
 
     log_success "cross-compilation file created"
@@ -195,7 +195,7 @@ configure_build() {
         -Dvulkan-drivers=freedreno \
         -Dvulkan-beta=true \
         -Dfreedreno-kmds=kgsl \
-        -Db_lto=true \
+        -Db_lto=false \
         -Db_ndebug=true \
         -Dcpp_rtti=false \
         -Degl=disabled \
