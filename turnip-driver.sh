@@ -14,7 +14,7 @@ STAGING_BRANCH="${STAGING_BRANCH:-staging/25.3}"
 CUSTOM_TAG="${CUSTOM_TAG:-}"
 BUILD_TYPE="${BUILD_TYPE:-release}"
 NDK_PATH="${NDK_PATH:-/opt/android-ndk}"
-API_LEVEL="${API_LEVEL:-35}"
+API_LEVEL="${API_LEVEL:-31}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -173,8 +173,8 @@ cpu = 'armv8'
 endian = 'little'
 
 [built-in options]
-c_args = ['-O3', '-DNDEBUG', '-Wno-error']
-cpp_args = ['-O3', '-DNDEBUG', '-Wno-error', '-Wno-c++11-narrowing']
+c_args = ['-O2', '-DNDEBUG', '-Wno-error']
+cpp_args = ['-O2', '-DNDEBUG', '-Wno-error', '-Wno-c++11-narrowing']
 EOF
 
     log_success "cross-compilation file created"
@@ -236,19 +236,12 @@ package_driver() {
     commit=$(cat "${BUILD_DIR}/commit.txt")
     vulkan_version=$(get_vulkan_version)
     
-    
-    local version_suffix=""
-    if [[ "$MESA_SOURCE" == "main_branch" || "$MESA_SOURCE" == "staging_branch" ]]; then
-        version_suffix="-devel"
-    fi
-    
-    
     local build_date
     build_date=$(date +'%b-%d-%Y' | tr '[:upper:]' '[:lower:]')
     
     local driver_src="${MESA_DIR}/build/src/freedreno/vulkan/libvulkan_freedreno.so"
     local package_dir="${BUILD_DIR}/package"
-    local driver_name="vulkan.ad07xx.so"
+    local driver_name="libvulkan.freedreno.so"
     
     mkdir -p "$package_dir"
     cp "$driver_src" "${package_dir}/${driver_name}"
@@ -261,13 +254,13 @@ package_driver() {
     driver_size=$(du -h "${package_dir}/${driver_name}" | cut -f1)
     
 
-    local filename="turnip_v${version}${version_suffix}-${build_date}"
+    local filename="turnip_v${version}-${build_date}"
     
     cat > "${package_dir}/meta.json" << EOF
 {
     "schemaVersion": 1,
-    "name": "turnip_v${version}${version_suffix}-${build_date}",
-    "description": "Compiled from Mesa ${version} (${commit})",
+    "name": "turnip_v${version}$-${build_date}",
+    "description": "Compiled from Mesa",
     "author": "Mesa3D",
     "packageVersion": "1",
     "vendor": "Mesa3D",
