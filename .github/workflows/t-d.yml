@@ -1,4 +1,4 @@
-name: Turnip Driver Builder
+name: T-D
 
 on:
   workflow_dispatch:
@@ -37,26 +37,21 @@ on:
       build_variant:
         type: choice
         description: "Build variant"
-        default: "optimized"
+        default: "opt"
         options:
-          - optimized
-          - autotuner
-          - vanilla
+          - opt
+          - auto
           
-  schedule:  
-    - cron: "0 7 * * 0"
-
 permissions:
   contents: write
 
 env:
-  NDK_VERSION: "android-ndk-r28"
-  API_LEVEL: "36"
+  NDK_VERSION: "android-ndk-r29"
+  API_LEVEL: "35"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     
     steps:
       - name: Checkout repository
@@ -90,7 +85,7 @@ jobs:
       - name: Build turnip driver
         id: build
         run: |
-          chmod +x turnip-driver.sh
+          chmod +x t-d.sh
           export MESA_SOURCE="${{ inputs.mesa_source || 'main_branch' }}"
           export STAGING_BRANCH="${{ inputs.staging_branch || 'staging/26.0' }}"
           export CUSTOM_TAG="${{ inputs.custom_tag || '' }}"
@@ -99,7 +94,7 @@ jobs:
           export NDK_PATH="${{ github.workspace }}/android-ndk"
           export API_LEVEL="${{ env.API_LEVEL }}"
           
-          bash turnip-driver.sh
+          bash t-d.sh
           
           echo "version=$(cat build/version.txt)" >> $GITHUB_OUTPUT
           echo "filename=$(cat build/filename.txt)" >> $GITHUB_OUTPUT
@@ -111,8 +106,6 @@ jobs:
         with:
           name: ${{ steps.build.outputs.filename }}
           path: build/*.zip
-          retention-days: 30
-          compression-level: 0
  
 #     - name: Create release
 #        uses: softprops/action-gh-release@v2
@@ -121,21 +114,6 @@ jobs:
 #          name: "Turnip ${{ steps.build.outputs.version }} - ${{ inputs.build_variant || 'optimized' }}"
 #          body: |
             ## Turnip Vulkan Driver for Adreno 7xx
-            
-#            **Mesa Version:** ${{ steps.build.outputs.version }}
-#            **Vulkan Version:** ${{ steps.build.outputs.vulkan_version }}
-#            **Build Date:** ${{ steps.build.outputs.build_date }}
-#            **Build Variant:** ${{ inputs.build_variant || 'optimized' }}
-            
-            ### Supported GPUs
-#            - Adreno 710/720/730/740/750
-          
-            ### Recommended TU_DEBUG
-#            ```
-#            TU_DEBUG=noconform
-#           ``` 
-            ### Troubleshooting
-#            - Black screen: TU_DEBUG=deck_emu
             
           files: build/*.zip
           draft: false
