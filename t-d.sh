@@ -27,7 +27,7 @@ CUSTOM_TAG="${CUSTOM_TAG:-}"
 BUILD_TYPE="${BUILD_TYPE:-release}"
 BUILD_VARIANT="${BUILD_VARIANT:-optimized}"
 NDK_PATH="${NDK_PATH:-/opt/android-ndk}"
-API_LEVEL="${API_LEVEL:-36}"
+API_LEVEL="${API_LEVEL:-35}"
 
 check_deps() {
     local deps="git meson ninja patchelf zip ccache curl python3"
@@ -543,8 +543,8 @@ package_driver() {
 {
     "schemaVersion": 1,
     "name": "Turnip A7xx ${BUILD_VARIANT}",
-    "description": "Mesa ${version} Vulkan ${vulkan_version}",
-    "author": "Mesa",
+    "description": "TurnipDriver",
+    "author": "Blue",
     "packageVersion": "1",
     "vendor": "Mesa",
     "driverVersion": "${vulkan_version}",
