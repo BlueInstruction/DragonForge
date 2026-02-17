@@ -67,7 +67,7 @@ export_env() {
 }
 
 main() {
-    log "V3X Build"
+    log "Vkd3d Build"
     log "========="
     fetch_ver
     clone
