@@ -1,4 +1,4 @@
-name: V3X Build
+name: Vkd3d Build
 
 on:
   schedule:
@@ -27,7 +27,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -68,7 +67,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          RELEASE_TAG="v3x-${{ steps.version.outputs.VER }}-d3mu"
+          RELEASE_TAG="v3x-${{ steps.version.outputs.VER }}-p"
           EXISTS=$(gh release view "$RELEASE_TAG" --repo ${{ github.repository }} 2>/dev/null && echo "true" || echo "false")
           [[ "${{ inputs.force }}" == "true" ]] && EXISTS="false"
           echo "skip=$EXISTS" >> $GITHUB_OUTPUT
@@ -119,11 +118,11 @@ jobs:
           EXT = [
               (mk('options7.MeshShaderTier'), r'\g<1>D3D12_MESH_SHADER_TIER_1;'),
               (mk('options12.EnhancedBarriersSupported'), r'\g<1>TRUE;'),
-              (mk('options5.RaytracingTier'), r'\g<1>D3D12_RAYTRACING_TIER_1_1;'),
+              (mk('options5.RaytracingTier'), r'\g<1>D3D12_RAYTRACING_TIER_1_2;'),
               (mk('options5.RenderPassesTier'), r'\g<1>D3D12_RENDER_PASS_TIER_2;'),
               (mk('options6.VariableShadingRateTier'), r'\g<1>D3D12_VARIABLE_SHADING_RATE_TIER_2;'),
               (mk('options6.ShadingRateImageTileSize'), r'\g<1>8;'),
-              (mk('options7.SamplerFeedbackTier'), r'\g<1>D3D12_SAMPLER_FEEDBACK_TIER_1_0;'),
+              (mk('options7.SamplerFeedbackTier'), r'\g<1>D3D12_SAMPLER_FEEDBACK_TIER_1_1;'),
               (mk('options2.DepthBoundsTestSupported'), r'\g<1>TRUE;'),
               (mk('options8.UnalignedBlockTexturesSupported'), r'\g<1>TRUE;'),
           ]
@@ -208,7 +207,7 @@ jobs:
           SRC=$(find out -maxdepth 1 -type d -name "vkd3d-proton-*" | head -1)
           [[ -z "$SRC" ]] && { echo "Build not found"; exit 1; }
           
-          PKG="v3x-${VER}-${COMMIT}-d3mu"
+          PKG="v3x-${VER}-${COMMIT}-p"
           
           mkdir -p pkg/system32 pkg/syswow64
           cp "$SRC/x64/"*.dll pkg/system32/
@@ -217,9 +216,9 @@ jobs:
           cat > pkg/profile.json << PJSON
           {
             "type": "VKD3D",
-            "versionName": "${VER}-${COMMIT}-d3mu",
+            "versionName": "${VER}-${COMMIT}-p",
             "versionCode": $(date +%Y%m%d),
-            "description": "V3X ${VER} D3MU",
+            "description": "Vkd3d ${VER} p",
             "files": [
               {"source": "system32/d3d12.dll", "target": "\${system32}/d3d12.dll"},
               {"source": "system32/d3d12core.dll", "target": "\${system32}/d3d12core.dll"},
@@ -253,16 +252,15 @@ jobs:
 #        uses: softprops/action-gh-release@v2
 #        with:
 #          tag_name: ${{ steps.check.outputs.release_tag }}-${{ env.COMMIT }}
-#          name: V3X ${{ steps.version.outputs.VER }} D3MU
+#          name: Vkd3d ${{ steps.version.outputs.VER }} D3MU
 #          files: |
 #            ${{ env.PKG }}.wcp
 #            patch-report.json
 #          body: |
-            ## V3X ${{ steps.version.outputs.VER }} - D3MU
+            ## Vkd3d ${{ steps.version.outputs.VER }} - p
             
 #            **Build:** `${{ env.COMMIT }}`
 #            **Profile:** ${{ inputs.profile || 'p7' }}
-#            **GPU:** `0x1002:0x163f`
             
 #            [Source](https://github.com/HansKristian-Work/vkd3d-proton)
           draft: false
