@@ -16,7 +16,7 @@ validate() {
     [[ -z "$VERSION" ]] && err "VERSION required"
     [[ -z "$COMMIT" ]] && err "COMMIT required"
     VC="${VERSION#v}"
-    AN="vkd3d-${VC}-${COMMIT}-d3mu"
+    AN="vkd3d-${VC}-${COMMIT}-p"
     log "V:$VC"
     log "C:$COMMIT"
     log "A:$AN"
@@ -42,9 +42,9 @@ create_profile() {
     cat > "$PD/profile.json" << EOF
 {
   "type": "VKD3D",
-  "versionName": "${VC}-${COMMIT}-d3mu",
+  "versionName": "${VC}-${COMMIT}-p",
   "versionCode": $(date +%Y%m%d),
-  "description": "V3X ${VC} D3MU",
+  "description": "Vkd3d ${VC} p",
   "files": [
     {"source": "system32/d3d12.dll", "target": "\${system32}/d3d12.dll"},
     {"source": "system32/d3d12core.dll", "target": "\${system32}/d3d12core.dll"},
@@ -95,7 +95,7 @@ export_env() {
 }
 
 main() {
-    log "V3X Packager"
+    log "Vkd3d Packager"
     log "============"
     validate
     find_output
