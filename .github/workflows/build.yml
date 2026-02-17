@@ -1,4 +1,4 @@
-name: Build V3X
+name: Build Vkd3d 
 
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ on:
         value: ${{ jobs.build.outputs.artifact_name }}
 
 concurrency:
-  group: build-v3x-${{ github.ref }}-${{ inputs.version || 'latest' }}
+  group: build-vkd3d-${{ github.ref }}-${{ inputs.version || 'latest' }}
   cancel-in-progress: true
 
 permissions:
@@ -44,7 +44,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
     outputs:
       version: ${{ steps.build.outputs.version }}
       commit: ${{ steps.build.outputs.commit }}
