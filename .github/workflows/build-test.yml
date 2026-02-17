@@ -32,7 +32,6 @@ defaults:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -168,7 +167,7 @@ jobs:
           report = {
               "v": "2.1.0",
               "t": datetime.utcnow().isoformat(),
-              "gpu": {"vid": "0x1002", "did": "0x163f", "name": "D3MU"},
+              "gpu": {"vid": "0x1002", "did": "0x163f", "name": "p"},
               "applied": applied,
               "errors": len(errors)
           }
@@ -177,7 +176,7 @@ jobs:
               json.dump(report, f, indent=2)
 
           print(f"Applied {applied} patches")
-          print(f"GPU: 0x1002:0x163f (D3MU)")
+          print(f"GPU: 0x1002:0x163f (p)")
           if errors:
               print(f"Errors: {len(errors)}")
               for e in errors[:5]:
@@ -247,10 +246,10 @@ jobs:
           cat > pkg/profile.json << JSONEOF
           {
             "type": "VKD3D",
-            "versionName": "${{ env.VER }}-${{ env.COMMIT }}-d3mu",
+            "versionName": "${{ env.VER }}-${{ env.COMMIT }}-p",
             "versionCode": ${{ env.BUILD_DATE }},
             "buildId": "${{ env.BUILD_ID }}",
-            "description": "VKD3D Proton D3MU (0x1002:0x163f)",
+            "description": "VKD3D Proton",
             "files": [
               {"source": "system32/d3d12.dll", "target": "\${system32}/d3d12.dll"},
               {"source": "system32/d3d12core.dll", "target": "\${system32}/d3d12core.dll"},
@@ -293,7 +292,6 @@ jobs:
             
 #            **Build:** `${{ env.COMMIT }}`
 #            **Date:** ${{ env.BUILD_DATE }}
-#            **GPU:** `0x1002:0x163f`
             
 #            [Source](https://github.com/HansKristian-Work/vkd3d-proton)
 #          draft: false
