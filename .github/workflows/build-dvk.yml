@@ -1,4 +1,4 @@
-name: Build DXVK (x86_64 — Box64)
+name: Build DXVK (x64)
 
 on:
   schedule:
