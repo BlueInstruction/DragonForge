@@ -8,7 +8,7 @@ on:
         required: false
         default: 'v2.7.1'
       
-      apply_ac_mirage_patches:
+      apply_patches:
         description: 'Apply patches'
         required: false
         default: true
