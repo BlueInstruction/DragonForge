@@ -1,0 +1,251 @@
+name: Build DXVK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'DXVK version'
+        required: false
+        default: 'v2.7.1'
+      
+      apply_ac_mirage_patches:
+        description: 'Apply patches'
+        required: false
+        default: true
+        type: boolean
+      
+      apply_adreno_optimizations:
+        description: 'Apply Adreno GPU optimizations'
+        required: false
+        default: true
+        type: boolean
+
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: false
+        default: 'v2.7.1'
+    outputs:
+      version:
+        value: ${{ jobs.build.outputs.version }}
+      artifact_name:
+        value: ${{ jobs.build.outputs.artifact_name }}
+
+concurrency:
+  group: build-dxvk-${{ github.ref }}-${{ inputs.version || 'latest' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.clone.outputs.version }}
+      commit: ${{ steps.clone.outputs.commit }}
+      artifact_name: ${{ steps.package.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git meson ninja-build \
+            glslang-tools spirv-tools \
+            gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 \
+            g++-mingw-w64-x86-64 g++-mingw-w64-i686 \
+            mingw-w64 mingw-w64-tools \
+            wine64 wine32
+          
+          # Set mingw to use posix threads
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix
+          sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix
+
+      - name: Clone DXVK
+        id: clone
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ -z "$VERSION" ]] || [[ "$VERSION" == "latest" ]]; then
+            echo "Fetching latest DXVK release..."
+            VERSION=$(curl -s https://api.github.com/repos/doitsujin/dxvk/releases/latest | jq -r '.tag_name')
+          fi
+          
+          echo "Cloning DXVK $VERSION..."
+          git clone --branch "$VERSION" --depth 1 --recursive https://github.com/doitsujin/dxvk.git
+          
+          cd dxvk
+          COMMIT=$(git rev-parse --short=8 HEAD)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          
+          echo "DXVK $VERSION ($COMMIT) cloned"
+
+      - name: Apply Patches
+        run: |
+          cd dxvk
+          
+          # Apply patches
+          if [[ "${{ inputs.apply_patches }}" == "true" ]]; then
+            echo "Applying patches..."
+            git apply ../patches/dxvk/fix.patch || echo "Patch already applied or not applicable"
+          fi
+          
+          # Apply Adreno optimizations
+          if [[ "${{ inputs.apply_adreno_optimizations }}" == "true" ]]; then
+            echo "Applying Adreno GPU optimizations..."
+            git apply ../patches/dxvk/adreno_optimizations.patch || echo "Patch already applied or not applicable"
+          fi
+          
+          echo "Patches applied"
+
+      - name: Build DXVK
+        run: |
+          cd dxvk
+          
+          # Build x64
+          ./package-release.sh \
+            ${{ steps.clone.outputs.version }} \
+            ../dxvk-build \
+            --no-package
+          
+          echo "Build complete"
+
+      - name: Verify Build
+        run: |
+          cd dxvk-build
+          BUILD_DIR=$(find . -maxdepth 1 -type d -name "dxvk-*" | head -1)
+          
+          echo "Verifying build in $BUILD_DIR..."
+          
+          ERROR_COUNT=0
+          for arch in x64 x86; do
+            for dll in d3d9.dll d3d10core.dll d3d11.dll dxgi.dll; do
+              FILE="$BUILD_DIR/$arch/$dll"
+              if [[ -f "$FILE" ]]; then
+                SIZE=$(stat -c%s "$FILE")
+                echo "✓ $FILE ($SIZE bytes)"
+              else
+                echo "✗ Missing: $FILE"
+                ((ERROR_COUNT++))
+              fi
+            done
+          done
+          
+          if [[ $ERROR_COUNT -gt 0 ]]; then
+            echo "Build verification failed: $ERROR_COUNT files missing"
+            exit 1
+          fi
+          
+          echo "Build verified successfully"
+
+      - name: Package
+        id: package
+        run: |
+          VERSION="${{ steps.clone.outputs.version }}"
+          COMMIT="${{ steps.clone.outputs.commit }}"
+          
+          cd dxvk-build
+          BUILD_DIR=$(find . -maxdepth 1 -type d -name "dxvk-*" | head -1)
+          
+          # Create package directory
+          mkdir -p ../dxvk-package/system32 ../dxvk-package/syswow64
+          
+          # Copy DLLs
+          cp "$BUILD_DIR/x64"/*.dll ../dxvk-package/system32/
+          cp "$BUILD_DIR/x86"/*.dll ../dxvk-package/syswow64/
+          
+          # Create profile.json for Winlator
+          cat > ../dxvk-package/profile.json << EOF
+          {
+            "type": "DXVK",
+            "versionName": "${VERSION#v}-${COMMIT}-patched",
+            "versionCode": $(date +%Y%m%d),
+            "description": "DXVK ${VERSION#v}",
+            "files": [
+              {"source": "system32/d3d9.dll", "target": "\${system32}/d3d9.dll"},
+              {"source": "system32/d3d10core.dll", "target": "\${system32}/d3d10core.dll"},
+              {"source": "system32/d3d11.dll", "target": "\${system32}/d3d11.dll"},
+              {"source": "system32/dxgi.dll", "target": "\${system32}/dxgi.dll"},
+              {"source": "syswow64/d3d9.dll", "target": "\${syswow64}/d3d9.dll"},
+              {"source": "syswow64/d3d10core.dll", "target": "\${syswow64}/d3d10core.dll"},
+              {"source": "syswow64/d3d11.dll", "target": "\${syswow64}/d3d11.dll"},
+              {"source": "syswow64/dxgi.dll", "target": "\${syswow64}/dxgi.dll"}
+            ]
+          }
+          EOF
+          
+          # Create .wcp archive
+          ARTIFACT_NAME="dxvk-${VERSION#v}-${COMMIT}-patched"
+          cd ../dxvk-package
+          tar --zstd -cf "../${ARTIFACT_NAME}.wcp" .
+          
+          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+          echo "Package: ${ARTIFACT_NAME}.wcp ($(du -h ../${ARTIFACT_NAME}.wcp | cut -f1))"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: "*.wcp"
+          retention-days: 90
+          compression-level: 0
+
+      - name: Create Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dxvk-${{ steps.clone.outputs.version }}-${{ steps.clone.outputs.commit }}
+          name: "DXVK ${{ steps.clone.outputs.version }} (Patched)"
+          body: |
+            ## DXVK with Custom Patches for Winlator/Android
+            
+            ### Version Information
+            - **DXVK**: ${{ steps.clone.outputs.version }}
+            - **Commit**: ${{ steps.clone.outputs.commit }}
+            - **Build Date**: ${{ github.event.repository.updated_at }}
+            
+            tar --zstd -xf dxvk-*.wcp
+            
+            cp system32/*.dll ~/.wine/drive_c/windows/system32/
+            cp syswow64/*.dll ~/.wine/drive_c/windows/syswow64/
+            
+            wine reg add 'HKCU\Software\Wine\DllOverrides' /v d3d9 /d native /f
+            wine reg add 'HKCU\Software\Wine\DllOverrides' /v d3d11 /d native /f
+            wine reg add 'HKCU\Software\Wine\DllOverrides' /v dxgi /d native /f
+            ```
+            ### Configuration
+            
+            create `dxvk.conf` in game directory:
+            ```ini
+            dxvk.enableDescriptorBuffer = False
+            dxvk.useRenderPassBarriers = True
+            dxvk.numCompilerThreads = 2
+            ```
+            
+            ### Verification
+            Check DXVK logs in `~/.wine/drive_c/windows/temp/` for:
+            ```
+            info: DXVK: v${{ steps.clone.outputs.version }}-${{ steps.clone.outputs.commit }}
+            info: Using tiled GPU optimizations
+            info: Render pass barriers enabled
+            ```
+            
+            ### Known Issues
+            - May cause slight FPS regression in some GPU-bound scenarios
+            - Async pipeline compilation can cause initial stutters
+            - Some games may need `dxvk.enableStateCache = True`
+            
+            See [TROUBLESHOOTING.md](https://github.com/BlueInstruction/Experimental/blob/main/docs/TROUBLESHOOTING.md) for more.
+          files: "*.wcp"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
