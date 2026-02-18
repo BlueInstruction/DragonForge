@@ -77,6 +77,20 @@ jobs:
           sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix 2>/dev/null || true
           sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix 2>/dev/null || true
 
+      - name: Generate Patch Number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LAST=$(gh release list --repo ${{ github.repository }} --limit 100 --json tagName -q '.[].tagName' | \
+            grep -oP 'p\K[0-9]+' | sort -n | tail -1 || echo "")
+          if [[ -z "$LAST" ]]; then
+            PATCH_NUM=1
+          else
+            PATCH_NUM=$((LAST + 1))
+            [[ $PATCH_NUM -gt 100 ]] && PATCH_NUM=1
+          fi
+          echo "PATCH_NUM=$PATCH_NUM" >> $GITHUB_ENV
+
       - name: Fetch Version
         run: |
           if [[ -n "${{ inputs.VERSION }}" ]]; then
@@ -95,7 +109,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          RELEASE_TAG="dxvk-steamdeck-${{ env.VER }}"
+          RELEASE_TAG="dxvk-${{ env.VER }}-p${{ env.PATCH_NUM }}"
           EXISTS=$(gh release view "$RELEASE_TAG" --repo ${{ github.repository }} 2>/dev/null && echo "true" || echo "false")
           [[ "${{ inputs.FORCE_MODE }}" == "true" ]] && EXISTS="false"
           echo "SKIP=$EXISTS" >> $GITHUB_OUTPUT
@@ -107,17 +121,15 @@ jobs:
           git clone --recurse-submodules --recursive --branch ${{ env.TAG }} --depth 1 \
             https://github.com/doitsujin/dxvk.git src
           cd src && chmod +x ./package-release.sh
-          COMMIT=$(git rev-parse --short HEAD)
-          echo "COMMIT=$COMMIT" >> $GITHUB_ENV
-          echo "BUILD_ID=${{ env.VER }}-${COMMIT:0:7}" >> $GITHUB_ENV
+          echo "BUILD_ID=${{ env.VER }}-p${{ env.PATCH_NUM }}" >> $GITHUB_ENV
 
       - name: Apply Patches
         if: steps.check.outputs.SKIP == 'false'
         run: |
           cd src
           cat > patch.py << 'PYSCRIPT'
-          import re, os, sys, json, glob
-          from datetime import datetime
+          import re, os, sys, json
+          from datetime import datetime, timezone
 
           applied = 0
           errors = []
@@ -153,16 +165,16 @@ jobs:
                       errors.append(f"Write error {path}: {e}")
 
           gpu_spoof = [
-              (r'(VkVendorId\s*=\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
-              (r'(vendorId\s*=\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
-              (r'(adapter_id\.vendor_id\s*=\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
-              (r'(VendorId\s*=\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
-              (r'(VkDeviceId\s*=\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
-              (r'(deviceId\s*=\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
-              (r'(adapter_id\.device_id\s*=\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
-              (r'(DeviceId\s*=\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
-              (r'(DedicatedVideoMemory\s*=\s*)[^;]+;', rf'\g<1>{GPU_VRAM_MB}ULL * 1024 * 1024;'),
-              (r'(SharedSystemMemory\s*=\s*)[^;]+;', rf'\g<1>{GPU_SHARED_MB}ULL * 1024 * 1024;'),
+              (r'(VkVendorId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
+              (r'(vendorId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
+              (r'(adapter_id\.vendor_id\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
+              (r'(VendorId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
+              (r'(VkDeviceId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
+              (r'(deviceId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
+              (r'(adapter_id\.device_id\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
+              (r'(DeviceId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
+              (r'(DedicatedVideoMemory\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VRAM_MB}ULL * 1024 * 1024;'),
+              (r'(SharedSystemMemory\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_SHARED_MB}ULL * 1024 * 1024;'),
           ]
 
           memory_patches = [
@@ -204,8 +216,8 @@ jobs:
                       patch_file(path, gpu_spoof)
 
           report = {
-              "v": "2.1.0",
-              "t": datetime.utcnow().isoformat(),
+              "v": "2.7.1",
+              "t": datetime.now(timezone.utc).isoformat(),
               "target": "dxvk",
               "profile": "steam-deck",
               "gpu": {
@@ -285,16 +297,10 @@ jobs:
           cat > pkg/profile.json << JSONEOF
           {
             "type": "DXVK",
-            "versionName": "${{ env.VER }}-${{ env.COMMIT }}-steamdeck",
+            "versionName": "${{ env.VER }}-p${{ env.PATCH_NUM }}",
             "versionCode": ${{ env.BUILD_DATE }},
             "buildId": "${{ env.BUILD_ID }}",
             "description": "DXVK ${{ env.VER }} - Steam Deck (AMD Van Gogh)",
-            "gpu": {
-              "vendor": "AMD",
-              "vendorId": "0x1002",
-              "device": "AMD Custom GPU 0405 (Van Gogh)",
-              "deviceId": "0x163F"
-            },
             "files": [
               {"source": "system32/d3d9.dll", "target": "\${system32}/d3d9.dll"},
               {"source": "system32/d3d10core.dll", "target": "\${system32}/d3d10core.dll"},
@@ -307,7 +313,7 @@ jobs:
             ]
           }
           JSONEOF
-          PKG="dxvk-${{ env.BUILD_ID }}-steamdeck"
+          PKG="dxvk-${{ env.BUILD_ID }}"
           cd pkg && tar --zstd -cf "../${PKG}.wcp" . && cd ..
           echo "PKG=$PKG" >> $GITHUB_ENV
           echo "PKG_SIZE=$(du -h ${PKG}.wcp | cut -f1)" >> $GITHUB_ENV
