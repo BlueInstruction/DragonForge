@@ -236,7 +236,7 @@ jobs:
         if: steps.check.outputs.SKIP == 'false'
         run: |
           cd src
-          BUILD_FLAGS="-O3 -DNDEBUG -march=znver2 -mtune=znver2"
+          BUILD_FLAGS="-O3 -DNDEBUG -march=znver2 -mtune=znver2 -mno-avx -mno-avx2 -mno-avx512f -mno-fma"
           [[ "${{ inputs.BUILD_TYPE }}" == "debug" ]] && BUILD_FLAGS="-O0 -g -DDEBUG"
           export CFLAGS="$BUILD_FLAGS"
           export CXXFLAGS="$BUILD_FLAGS"
