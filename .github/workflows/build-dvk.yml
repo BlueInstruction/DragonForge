@@ -72,10 +72,29 @@ jobs:
             g++-mingw-w64-x86-64 g++-mingw-w64-i686 \
             mingw-w64 mingw-w64-tools binutils-mingw-w64 \
             wine64 wine32
-          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix 2>/dev/null || true
-          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix 2>/dev/null || true
-          sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix 2>/dev/null || true
-          sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix 2>/dev/null || true
+
+          # Set posix variants — find the actual path first to avoid silent failures
+          for TOOL in x86_64-w64-mingw32-gcc x86_64-w64-mingw32-g++ i686-w64-mingw32-gcc i686-w64-mingw32-g++; do
+            POSIX_PATH=$(ls /usr/bin/${TOOL}-posix 2>/dev/null || true)
+            if [[ -n "$POSIX_PATH" ]]; then
+              sudo update-alternatives --set "$TOOL" "$POSIX_PATH"
+              echo "Set $TOOL -> $POSIX_PATH"
+            else
+              echo "WARNING: $TOOL-posix not found, skipping update-alternatives"
+            fi
+          done
+
+          # Verify i686 cross-compiler is functional
+          echo "--- Verifying i686 cross-compiler ---"
+          i686-w64-mingw32-gcc --version
+          echo 'int main(){return 0;}' | i686-w64-mingw32-gcc -x c - -o /tmp/test32.exe
+          echo "i686 cross-compiler OK"
+
+          # Verify x86_64 cross-compiler is functional
+          echo "--- Verifying x86_64 cross-compiler ---"
+          x86_64-w64-mingw32-gcc --version
+          echo 'int main(){return 0;}' | x86_64-w64-mingw32-gcc -x c - -o /tmp/test64.exe
+          echo "x86_64 cross-compiler OK"
 
       - name: Generate Patch Number
         env:
@@ -244,17 +263,31 @@ jobs:
         if: steps.check.outputs.SKIP == 'false'
         run: |
           cd src
-          BUILD_FLAGS="-O3 -DNDEBUG -march=znver2 -mtune=znver2 -mno-avx -mno-avx2 -mno-avx512f -mno-fma"
-          [[ "${{ inputs.BUILD_TYPE }}" == "debug" ]] && BUILD_FLAGS="-O0 -g -DDEBUG"
-          export CFLAGS="$BUILD_FLAGS"
-          export CXXFLAGS="$BUILD_FLAGS"
+
+          # FIX: Do NOT set arch-specific flags globally.
+          # -march=znver2 and AVX flags are x86-64 only and break the i686 cross-compiler,
+          # causing the x86 DLLs to silently not be produced.
+          if [[ "${{ inputs.BUILD_TYPE }}" == "debug" ]]; then
+            export CFLAGS="-O0 -g -DDEBUG"
+            export CXXFLAGS="-O0 -g -DDEBUG"
+          else
+            # Generic flags safe for both x64 and x86 cross-compilation targets
+            export CFLAGS="-O3 -DNDEBUG"
+            export CXXFLAGS="-O3 -DNDEBUG"
+          fi
           export LDFLAGS="-s"
+
           bash ./package-release.sh ${{ env.TAG }} ../out --no-package 2>&1 | tee build.log
-          if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-            echo "Build failed"
+          EXIT_CODE=${PIPESTATUS[0]}
+
+          if [[ $EXIT_CODE -ne 0 ]]; then
+            echo "Build failed with exit code $EXIT_CODE"
             tail -n 100 build.log
             exit 1
           fi
+
+          echo "--- Output directory structure ---"
+          find ../out -type f | sort
 
       - name: Verify Build
         if: steps.check.outputs.SKIP == 'false'
