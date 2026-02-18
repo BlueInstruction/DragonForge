@@ -166,13 +166,9 @@ jobs:
 
           gpu_spoof = [
               (r'(VkVendorId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
-              (r'(vendorId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
               (r'(adapter_id\.vendor_id\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
-              (r'(VendorId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VENDOR_ID};'),
-              (r'(VkDeviceId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
-              (r'(deviceId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
               (r'(adapter_id\.device_id\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
-              (r'(DeviceId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
+              (r'(VkDeviceId\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_DEVICE_ID};'),
               (r'(DedicatedVideoMemory\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_VRAM_MB}ULL * 1024 * 1024;'),
               (r'(SharedSystemMemory\s*(?<!=)=(?!=)\s*)[^;]+;', rf'\g<1>{GPU_SHARED_MB}ULL * 1024 * 1024;'),
           ]
