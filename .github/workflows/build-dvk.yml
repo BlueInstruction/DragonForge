@@ -95,13 +95,13 @@ jobs:
           # Apply patches
           if [[ "${{ inputs.apply_patches }}" == "true" ]]; then
             echo "Applying patches..."
-            git apply ../patches/dxvk/fix.patch || echo "Patch already applied or not applicable"
+            git apply ../patches/dvk/fix.patch || echo "Patch already applied or not applicable"
           fi
           
           # Apply Adreno optimizations
           if [[ "${{ inputs.apply_adreno_optimizations }}" == "true" ]]; then
             echo "Applying Adreno GPU optimizations..."
-            git apply ../patches/dxvk/adreno_optimizations.patch || echo "Patch already applied or not applicable"
+            git apply ../patches/dvk/adreno_optimizations.patch || echo "Patch already applied or not applicable"
           fi
           
           echo "Patches applied"
