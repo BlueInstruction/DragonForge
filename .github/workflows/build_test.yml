@@ -299,7 +299,7 @@ jobs:
           cat > pkg/profile.json << 'JSONEOF'
           {
             "type": "VKD3D",
-            "versionName": "3.0b-${{ env.BUILD_DATE }}",
+            "versionName": "3.0b",
             "versionCode": ${{ env.BUILD_DATE }},
             "buildId": "${{ env.BUILD_ID }}",
             "description": "VKD3D-Proton-3.0b",
