@@ -90,10 +90,36 @@ jobs:
           cd src && chmod +x ./package-release.sh
           echo "BUILD_ID=3.0b-${{ env.BUILD_DATE }}" >> $GITHUB_ENV
 
+      
       - name: Apply Patches
         if: steps.check.outputs.SKIP == 'false'
         run: |
           cd src
+          cat > performance_patch.diff << 'EOF'
+          
+          diff --git a/libs/vkd3d/command.c b/libs/vkd3d/command.c
+          --- a/libs/vkd3d/command.c
+          +++ b/libs/vkd3d/command.c
+          @@ -1,1 +1,1 @@
+          -    device->use_batch_submission = true;
+          +    device->use_batch_submission = false;
+
+          diff --git a/libs/vkd3d/device.c b/libs/vkd3d/device.c
+          --- a/libs/vkd3d/device.c
+          +++ b/libs/vkd3d/device.c
+          @@ -1,1 +1,1 @@
+          -    device->use_unified_image_layouts = true;
+          +    device->use_unified_image_layouts = false;
+
+          diff --git a/libs/vkd3d/resource.c b/libs/vkd3d/resource.c
+          --- a/libs/vkd3d/resource.c
+          +++ b/libs/vkd3d/resource.c
+          @@ -1,1 +1,1 @@
+          -    device->enable_strict_barriers = true;
+          +    device->enable_strict_barriers = false;
+          EOF
+          git apply performance_patch.diff || true
+         
           cat > patch.py << 'PYSCRIPT'
           import re, os, sys
 
@@ -138,72 +164,55 @@ jobs:
               (r'(info\.HighestShaderModel\s*=\s*)[^;]+;', r'\g<1>D3D_SHADER_MODEL_6_7;'),
               (r'(MaxSupportedFeatureLevel\s*=\s*)[^;]+;', r'\g<1>D3D_FEATURE_LEVEL_12_2;'),
               (r'(D3D12SDKVersion\s*=\s*)[^;]+;', r'\g<1>618;'),
-
               (r'(options1\.WaveOps\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options1\.WaveLaneCountMin\s*=\s*)[^;]+;', r'\g<1>32;'),
               (r'(options1\.WaveLaneCountMax\s*=\s*)[^;]+;', r'\g<1>64;'),
               (r'(options1\.Int64ShaderOps\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options1\.ExpandedComputeResourceStates\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options2\.DepthBoundsTestSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options2\.ProgrammableSamplePositionsTier\s*=\s*)[^;]+;', r'\g<1>D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_2;'),
-
               (r'(options3\.BarycentricsSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options3\.ThresholdCoefficientsSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options4\.Native16BitShaderOpsSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options4\.MSAAOperationsSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options5\.RaytracingTier\s*=\s*)[^;]+;', r'\g<1>D3D12_RAYTRACING_TIER_1_2;'),
               (r'(options5\.RenderPassesTier\s*=\s*)[^;]+;', r'\g<1>D3D12_RENDER_PASS_TIER_2;'),
               (r'(options5\.SRVOnlyTiledResourceTier3\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options6\.VariableShadingRateTier\s*=\s*)[^;]+;', r'\g<1>D3D12_VARIABLE_SHADING_RATE_TIER_2;'),
               (r'(options6\.ShadingRateImageTileSize\s*=\s*)[^;]+;', r'\g<1>8;'),
               (r'(options6\.BackgroundProcessingSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options6\.AdditionalShadingRatesSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options6\.PerPrimitiveShadingRateSupportedWithViewportIndexing\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options7\.MeshShaderTier\s*=\s*)[^;]+;', r'\g<1>D3D12_MESH_SHADER_TIER_1;'),
               (r'(options7\.SamplerFeedbackTier\s*=\s*)[^;]+;', r'\g<1>D3D12_SAMPLER_FEEDBACK_TIER_1_0;'),
-
               (r'(options8\.UnalignedBlockTexturesSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options9\.AdvancedTextureOpsSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options9\.WriteableMSAATexturesSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options9\.MeshShaderSupportsFullRangeRenderTargetArrayIndex\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options10\.VariableRateShadingSumCombinerSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options10\.MeshShaderPerPrimitiveShadingRateSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options11\.AtomicInt64OnDescriptorHeapResourceSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options11\.AtomicInt64OnGroupSharedSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options11\.AtomicInt64OnTypedResourceSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options11\.DerivativesInMeshAndAmplificationShadersSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options12\.EnhancedBarriersSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options12\.RelaxedFormatCastingSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options12\.UnifiedImageLayoutsSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options12\.MSPrimitivesPipelineStatisticIncludesCulledPrimitives\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options13\.UnrestrictedBufferTextureCopyPitchSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options13\.UnrestrictedVertexElementAlignmentSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options13\.InvertedViewportHeightFlipsYSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options13\.InvertedViewportDepthFlipsZSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options13\.TextureCopyBetweenDimensionsSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options13\.AlphaBlendFactorSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options16\.GPUUploadHeapSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options16\.MapDefaultHeapAllocationSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options17\.NonNormalizedCoordinateSamplersSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options17\.ManualWriteTrackingResourceSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options21\.WorkGraphsTier\s*=\s*)[^;]+;', r'\g<1>D3D12_WORK_GRAPHS_TIER_1_0;'),
               (r'(options21\.ExecuteIndirectTier\s*=\s*)[^;]+;', r'\g<1>D3D12_EXECUTE_INDIRECT_TIER_1_1;'),
               (r'(options21\.SampleCmpGradientAndBiasSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options21\.ExtendedCommandInfoSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
-
               (r'(options\.ResourceBindingTier\s*=\s*)[^;]+;', r'\g<1>D3D12_RESOURCE_BINDING_TIER_3;'),
               (r'(options\.TiledResourcesTier\s*=\s*)[^;]+;', r'\g<1>D3D12_TILED_RESOURCES_TIER_4;'),
               (r'(options\.ResourceHeapTier\s*=\s*)[^;]+;', r'\g<1>D3D12_RESOURCE_HEAP_TIER_2;'),
