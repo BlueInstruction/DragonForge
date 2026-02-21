@@ -424,7 +424,7 @@ jobs:
           cat > pkg/profile.json << JSONEOF
           {
             "type": "VKD3D",
-            "versionName": "arm64ec",
+            "versionName": "3.0b-arm64ec",
             "versionCode": ${{ env.BUILD_DATE }},
             "description": "VKD3D-Proton ${{ env.VER }} ARM64EC",
             "files": [
