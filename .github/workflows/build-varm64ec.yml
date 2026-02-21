@@ -426,7 +426,7 @@ jobs:
             "type": "VKD3D",
             "versionName": "3.0b-arm64ec",
             "versionCode": ${{ env.BUILD_DATE }},
-            "description": "VKD3D-Proton ${{ env.VER }} ARM64EC",
+            "description": "VKD3D-Proton-Arm64ec",
             "files": [
               {"source": "system32/d3d12.dll", "target": "\${system32}/d3d12.dll"},
               {"source": "system32/d3d12core.dll", "target": "\${system32}/d3d12core.dll"},
