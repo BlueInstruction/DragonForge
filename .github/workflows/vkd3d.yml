@@ -1,8 +1,8 @@
-name: Build Test
+name: Vkd3d Proton 
 
 on:
   schedule:
-    - cron: "0 21 * * *"
+    - cron: "0 21 */28 * *"
   workflow_dispatch:
     inputs:
       FORCE_MODE:
@@ -380,6 +380,21 @@ jobs:
           path: ${{ env.PKG }}.wcp
           retention-days: 30
           compression-level: 9
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.SKIP == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ env.RELEASE_TAG }}" \
+            --repo "${{ github.repository }}" \
+            --title "VKD3D-Proton 3.0b — ${{ env.BUILD_DATE }}" \
+            --notes "## VKD3D-Proton ${{ env.VER }} - ${{ env.BUILD_DATE }}
+
+          **Build:** \`${{ env.TAG }}\`
+
+          [Source](https://github.com/HansKristian-Work/vkd3d-proton)" \
+            "${{ env.PKG }}.wcp"
 
       - name: Cleanup
         if: always()
