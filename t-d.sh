@@ -26,7 +26,7 @@ CUSTOM_TAG="${CUSTOM_TAG:-}"
 BUILD_TYPE="${BUILD_TYPE:-release}"
 BUILD_VARIANT="${BUILD_VARIANT:-optimized}"
 NDK_PATH="${NDK_PATH:-/opt/android-ndk}"
-API_LEVEL="${API_LEVEL:-36}"
+API_LEVEL="${API_LEVEL:-35}"
 
 check_deps() {
     local deps="git meson ninja patchelf zip ccache curl python3"
@@ -353,21 +353,18 @@ apply_vulkan_extensions_support() {
     [[ ! -f "$tu_device" ]] && { log_warn "tu_device.cc not found"; return 0; }
 
     # 1. Add missing extensions to ALLOWED_ANDROID_VERSION in vk_extensions.py
-    # These extensions are not yet whitelisted for Android but are valid
     if [[ -f "$vk_extensions_py" ]]; then
         python3 << 'PYEOF'
 import re
 
-with open('__VK_EXT_FILE__', 'r') as f:
+filepath = '__VK_EXT_FILE__'
+with open(filepath, 'r') as f:
     content = f.read()
 
-# New extensions to add to ALLOWED_ANDROID_VERSION
 new_exts = {
-    # KHR present/swapchain extensions
     '"VK_KHR_present_wait2"': 36,
     '"VK_KHR_present_id2"': 36,
     '"VK_KHR_swapchain_maintenance1"': 35,
-    # EXT extensions
     '"VK_EXT_swapchain_maintenance1"': 35,
     '"VK_EXT_attachment_feedback_loop_layout"': 34,
     '"VK_EXT_attachment_feedback_loop_dynamic_state"': 35,
@@ -376,6 +373,8 @@ new_exts = {
     '"VK_EXT_shader_replicated_composites"': 35,
     '"VK_EXT_map_memory_placed"': 35,
     '"VK_EXT_depth_clamp_control"': 35,
+    '"VK_EXT_depth_clip_control"': 35,
+    '"VK_EXT_depth_clip_enable"': 35,
     '"VK_EXT_vertex_input_dynamic_state"': 33,
     '"VK_EXT_extended_dynamic_state3"': 34,
     '"VK_EXT_image_2d_view_of_3d"': 33,
@@ -402,6 +401,25 @@ new_exts = {
     '"VK_EXT_nested_command_buffer"': 35,
     '"VK_EXT_dynamic_rendering_unused_attachments"': 34,
     '"VK_EXT_host_image_copy"': 35,
+    '"VK_KHR_fragment_shading_rate"': 33,
+    '"VK_EXT_filter_cubic"': 33,
+    '"VK_IMG_filter_cubic"': 33,
+    '"VK_EXT_sample_locations"': 33,
+    '"VK_EXT_texture_compression_astc_hdr"': 33,
+    '"VK_EXT_calibrated_timestamps"': 33,
+    '"VK_EXT_conservative_rasterization"': 33,
+    '"VK_AMD_shader_fragment_mask"': 33,
+    '"VK_KHR_shader_atomic_int64"': 33,
+    '"VK_KHR_8bit_storage"': 33,
+    '"VK_KHR_16bit_storage"': 33,
+    '"VK_VALVE_mutable_descriptor_type"': 33,
+    '"VK_EXT_memory_budget"': 33,
+    '"VK_EXT_display_control"': 33,
+    '"VK_KHR_ray_query"': 33,
+    '"VK_KHR_acceleration_structure"': 33,
+    '"VK_KHR_ray_tracing_maintenance1"': 33,
+    '"VK_KHR_deferred_host_operations"': 33,
+    '"VK_KHR_pipeline_library"': 33,
 }
 
 marker = '"VK_KHR_maintenance7": 36,'
@@ -414,76 +432,10 @@ if additions:
     insert = '\n'.join(additions) + '\n    '
     content = content.replace(marker, marker + '\n' + insert)
 
-with open('__VK_EXT_FILE__', 'w') as f:
+with open(filepath, 'w') as f:
     f.write(content)
-
-print(f"Added {len(additions)} extensions to ALLOWED_ANDROID_VERSION")
 PYEOF
-        # Replace placeholder with actual path
-        local py_script="${WORKDIR}/patch_vk_exts.py"
-        cp /dev/stdin "$py_script" << 'PYEOF2'
-import re, sys
-
-filepath = sys.argv[1]
-with open(filepath, 'r') as f:
-    content = f.read()
-
-new_exts = {
-    '"VK_KHR_present_wait2"': 36,
-    '"VK_KHR_present_id2"': 36,
-    '"VK_KHR_swapchain_maintenance1"': 35,
-    '"VK_EXT_swapchain_maintenance1"': 35,
-    '"VK_EXT_attachment_feedback_loop_layout"': 34,
-    '"VK_EXT_attachment_feedback_loop_dynamic_state"': 35,
-    '"VK_EXT_device_fault"': 34,
-    '"VK_EXT_device_address_binding_report"': 34,
-    '"VK_EXT_shader_replicated_composites"': 35,
-    '"VK_EXT_map_memory_placed"': 35,
-    '"VK_EXT_depth_clamp_control"': 35,
-    '"VK_EXT_vertex_input_dynamic_state"': 33,
-    '"VK_EXT_extended_dynamic_state3"': 34,
-    '"VK_EXT_image_2d_view_of_3d"': 33,
-    '"VK_EXT_image_sliced_view_of_3d"': 34,
-    '"VK_EXT_pipeline_robustness"': 33,
-    '"VK_EXT_graphics_pipeline_library"': 33,
-    '"VK_EXT_mesh_shader"': 33,
-    '"VK_EXT_mutable_descriptor_type"': 33,
-    '"VK_EXT_non_seamless_cube_map"': 33,
-    '"VK_EXT_pageable_device_local_memory"': 33,
-    '"VK_EXT_physical_device_drm"': 33,
-    '"VK_EXT_pipeline_library_group_handles"': 34,
-    '"VK_EXT_primitives_generated_query"': 33,
-    '"VK_EXT_primitive_topology_list_restart"': 33,
-    '"VK_EXT_rasterization_order_attachment_access"': 33,
-    '"VK_EXT_shader_atomic_float2"': 33,
-    '"VK_EXT_shader_module_identifier"': 33,
-    '"VK_EXT_shader_object"': 34,
-    '"VK_EXT_subpass_merge_feedback"': 33,
-    '"VK_EXT_image_compression_control"': 33,
-    '"VK_EXT_image_compression_control_swapchain"': 33,
-    '"VK_EXT_frame_boundary"': 35,
-    '"VK_EXT_nested_command_buffer"': 35,
-    '"VK_EXT_dynamic_rendering_unused_attachments"': 34,
-    '"VK_EXT_host_image_copy"': 35,
-}
-
-# Find insertion point — after the last KHR entry
-marker = '"VK_KHR_maintenance7": 36,'
-additions = []
-for ext_name, version in new_exts.items():
-    if ext_name not in content:
-        additions.append(f'    {ext_name}: {version},')
-
-if additions and marker in content:
-    insert = '\n' + '\n'.join(additions)
-    content = content.replace(marker, marker + insert)
-    with open(filepath, 'w') as f:
-        f.write(content)
-    print(f"[OK] Added {len(additions)} extensions")
-else:
-    print(f"[WARN] marker not found or no new extensions to add")
-PYEOF2
-        python3 "$py_script" "$vk_extensions_py"
+        sed -i "s/__VK_EXT_FILE__/$vk_extensions_py/g" /dev/stdin  # Placeholder replacement not needed in actual script
         log_success "vk_extensions.py patched with new Android-allowed extensions"
     fi
 
@@ -500,6 +452,49 @@ PYEOF2
         "hostImageCopy"
         "nestedCommandBuffer"
         "dynamicRenderingUnusedAttachments"
+        "primitivesGeneratedQuery"
+        "primitiveTopologyListRestart"
+        "depthClipControl"
+        "depthClipEnable"
+        "fragmentShadingRate"
+        "filterCubic"
+        "sampleLocations"
+        "textureCompressionASTC_HDR"
+        "calibratedTimestamps"
+        "conservativeRasterization"
+        "shaderFragmentMask"
+        "shaderAtomicInt64"
+        "8BitStorage"
+        "16BitStorage"
+        "mutableDescriptorType"
+        "memoryBudget"
+        "displayControl"
+        "rayQuery"
+        "accelerationStructure"
+        "rayTracingMaintenance1"
+        "deferredHostOperations"
+        "pipelineLibrary"
+        "shaderFloat64"
+        "shaderStorageImageMultisample"
+        "uniformAndStorageBuffer16BitAccess"
+        "storagePushConstant16"
+        "uniformAndStorageBuffer8BitAccess"
+        "storagePushConstant8"
+        "shaderSharedInt64Atomics"
+        "shaderBufferInt64Atomics"
+        "independentResolve"
+        "independentResolveNone"
+        "shaderDenormPreserveFloat16"
+        "shaderDenormFlushToZeroFloat16"
+        "shaderRoundingModeRTZFloat16"
+        "samplerFilterMinmax"
+        "fragmentDensityMapDynamic"
+        "integerDotProduct8BitUnsignedAccelerated"
+        "maintenance5"
+        "maintenance6"
+        "maintenance7"
+        "maintenance8"
+        "taskShader"
     )
 
     for flag in "${ext_flags[@]}"; do
@@ -532,6 +527,10 @@ PYEOF2
         local new_py_exts=(
             "VK_KHR_present_wait2"
             "VK_KHR_present_id2"
+            "VK_KHR_maintenance5"
+            "VK_KHR_maintenance6"
+            "VK_KHR_maintenance7"
+            "VK_KHR_maintenance8"
         )
         for ext in "${new_py_exts[@]}"; do
             if ! grep -q "\"${ext}\"" "$tu_extensions_py" 2>/dev/null; then
@@ -543,6 +542,22 @@ PYEOF2
     fi
 
     log_success "Vulkan extensions support applied"
+}
+
+apply_uncached_memory_fix() {
+    log_info "Applying uncached memory fix for stability"
+    local tu_device_cc="${MESA_DIR}/src/freedreno/vulkan/tu_device.cc"
+
+    if [[ -f "$tu_device_cc" ]]; then
+        sed -i 's/physical_device->has_cached_coherent_memory = .*/physical_device->has_cached_coherent_memory = false;/' "$tu_device_cc" || true
+    fi
+
+    grep -rl "VK_MEMORY_PROPERTY_HOST_CACHED_BIT" "${MESA_DIR}/src/freedreno/vulkan/" | while read file; do
+        sed -i 's/dev->physical_device->has_cached_coherent_memory ? VK_MEMORY_PROPERTY_HOST_CACHED_BIT : 0/0/g' "$file" || true
+        sed -i 's/VK_MEMORY_PROPERTY_HOST_CACHED_BIT/0/g' "$file" || true
+    done
+
+    log_success "Uncached memory fix applied"
 }
 
 apply_patches() {
@@ -559,6 +574,7 @@ apply_patches() {
     apply_gralloc_ubwc_fix
     apply_deck_emu_support
     apply_vulkan_extensions_support
+    apply_uncached_memory_fix
 
     if [[ "$BUILD_VARIANT" == "autotuner" ]]; then
         apply_a6xx_query_fix
