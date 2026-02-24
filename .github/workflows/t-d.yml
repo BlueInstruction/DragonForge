@@ -12,7 +12,7 @@ on:
           - staging_branch
           - main_branch
           - custom_tag
-          
+
       staging_branch:
         type: choice
         description: "Staging branch"
@@ -20,40 +20,37 @@ on:
         options:
           - staging/26.0
           - staging/25.3
-      
+
       custom_tag:
         description: "Custom tag"
         required: false
         default: ""
-      
+
       build_type:
         type: choice
         description: "Build type"
         default: "release"
         options:
           - release
-          - debug
-      
+
       build_variant:
         type: choice
         description: "Build variant"
         default: "optimized"
         options:
           - optimized
-          - autotuner
-          - vanilla
-          
+
 permissions:
   contents: write
 
 env:
-  NDK_VERSION: "android-ndk-r29"
-  API_LEVEL: "35"
+  NDK_VERSION: "android-ndk-r30"
+  API_LEVEL: "36"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -94,30 +91,29 @@ jobs:
           export BUILD_VARIANT="${{ inputs.build_variant || 'optimized' }}"
           export NDK_PATH="${{ github.workspace }}/android-ndk"
           export API_LEVEL="${{ env.API_LEVEL }}"
-          
+
           bash t-d.sh
-          
-          echo "version=$(cat build/version.txt)" >> $GITHUB_OUTPUT
-          echo "filename=$(cat build/filename.txt)" >> $GITHUB_OUTPUT
+
+          echo "version=$(cat build/version.txt)"             >> $GITHUB_OUTPUT
+          echo "filename=$(cat build/filename.txt)"           >> $GITHUB_OUTPUT
           echo "vulkan_version=$(cat build/vulkan_version.txt)" >> $GITHUB_OUTPUT
-          echo "build_date=$(cat build/build_date.txt)" >> $GITHUB_OUTPUT
+          echo "build_date=$(cat build/build_date.txt)"       >> $GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build.outputs.filename }}
           path: build/*.zip
- 
-#     - name: Create release
+
+#      - name: Create release
 #        uses: softprops/action-gh-release@v2
-#       with:
-#         tag_name: ${{ steps.build.outputs.filename }}
+#        with:
+#          tag_name: ${{ steps.build.outputs.filename }}
 #          name: "Turnip ${{ steps.build.outputs.version }} - ${{ inputs.build_variant || 'optimized' }}"
 #          body: |
-            ## Turnip Vulkan Driver for Adreno 7xx
-            
-          files: build/*.zip
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#            ## Turnip Vulkan Driver for Adreno 7xx
+#          files: build/*.zip
+#          draft: false
+#          prerelease: false
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
