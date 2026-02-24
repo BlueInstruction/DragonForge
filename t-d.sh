@@ -28,7 +28,6 @@ BUILD_VARIANT="${BUILD_VARIANT:-optimized}"
 NDK_PATH="${NDK_PATH:-/opt/android-ndk}"
 API_LEVEL="${API_LEVEL:-35}"
 
-# ──────────────────────────────────────────────
 check_deps() {
     local deps="git meson ninja patchelf zip ccache curl python3"
     for dep in $deps; do
@@ -40,7 +39,6 @@ check_deps() {
     log_success "Dependencies check passed"
 }
 
-# ──────────────────────────────────────────────
 fetch_latest_release() {
     local tags=""
     tags=$(git ls-remote --tags --refs "$MESA_REPO" 2>/dev/null | \
@@ -57,12 +55,10 @@ fetch_latest_release() {
     echo "$tags"
 }
 
-# ──────────────────────────────────────────────
 get_mesa_version() {
     [[ -f "${MESA_DIR}/VERSION" ]] && cat "${MESA_DIR}/VERSION" || echo "unknown"
 }
 
-# ──────────────────────────────────────────────
 get_vulkan_version() {
     local vk_header="${MESA_DIR}/include/vulkan/vulkan_core.h"
     if [[ -f "$vk_header" ]]; then
@@ -76,7 +72,6 @@ get_vulkan_version() {
     fi
 }
 
-# ──────────────────────────────────────────────
 prepare_workdir() {
     log_info "Preparing build directory"
     rm -rf "$WORKDIR"
@@ -84,7 +79,6 @@ prepare_workdir() {
     log_success "Build directory ready"
 }
 
-# ──────────────────────────────────────────────
 update_vulkan_headers() {
     log_info "Updating Vulkan headers to latest version"
     local headers_dir="${WORKDIR}/vulkan-headers"
@@ -99,7 +93,6 @@ update_vulkan_headers() {
     rm -rf "$headers_dir"
 }
 
-# ──────────────────────────────────────────────
 clone_mesa() {
     log_info "Cloning Mesa source"
     local clone_args=("--depth" "1")
@@ -153,7 +146,6 @@ clone_mesa() {
     log_success "Mesa $version ($commit) ready"
 }
 
-# ──────────────────────────────────────────────
 apply_timeline_semaphore_fix() {
     log_info "Applying timeline semaphore optimization"
     local target_file="${MESA_DIR}/src/vulkan/runtime/vk_sync_timeline.c"
@@ -256,7 +248,6 @@ PATCH_EOF
     log_success "Timeline semaphore fix applied"
 }
 
-# ──────────────────────────────────────────────
 apply_ubwc_support() {
     log_info "Applying UBWC 5/6 support"
     local kgsl_file="${MESA_DIR}/src/freedreno/vulkan/tu_knl_kgsl.cc"
@@ -270,7 +261,6 @@ apply_ubwc_support() {
     fi
 }
 
-# ──────────────────────────────────────────────
 apply_gralloc_ubwc_fix() {
     log_info "Applying gralloc UBWC detection fix"
     local gralloc_file="${MESA_DIR}/src/util/u_gralloc/u_gralloc_fallback.c"
@@ -304,7 +294,6 @@ PATCH_EOF
     log_success "Gralloc UBWC fix applied"
 }
 
-# ──────────────────────────────────────────────
 apply_deck_emu_support() {
     log_info "Applying deck_emu debug option"
     local tu_util_h="${MESA_DIR}/src/freedreno/vulkan/tu_util.h"
@@ -348,7 +337,6 @@ PATCH_EOF
     fi
 }
 
-# ──────────────────────────────────────────────
 apply_a6xx_query_fix() {
     log_info "Applying A6xx query fix"
     find "${MESA_DIR}/src/freedreno/vulkan" -name "tu_query*.cc" -exec \
@@ -356,7 +344,6 @@ apply_a6xx_query_fix() {
     log_success "A6xx query fix applied"
 }
 
-# ──────────────────────────────────────────────
 apply_vulkan_extensions_support() {
     log_info "Enabling additional Vulkan extensions"
     local tu_device="${MESA_DIR}/src/freedreno/vulkan/tu_device.cc"
@@ -365,7 +352,7 @@ apply_vulkan_extensions_support() {
 
     [[ ! -f "$tu_device" ]] && { log_warn "tu_device.cc not found"; return 0; }
 
-    # ── 1. Add missing extensions to ALLOWED_ANDROID_VERSION in vk_extensions.py ──
+    # 1. Add missing extensions to ALLOWED_ANDROID_VERSION in vk_extensions.py
     # These extensions are not yet whitelisted for Android but are valid
     if [[ -f "$vk_extensions_py" ]]; then
         python3 << 'PYEOF'
@@ -500,7 +487,7 @@ PYEOF2
         log_success "vk_extensions.py patched with new Android-allowed extensions"
     fi
 
-    # ── 2. Force-enable flags in tu_device.cc ──
+    # 2. Force-enable flags in tu_device.cc
     local ext_flags=(
         "attachmentFeedbackLoopLayout"
         "attachmentFeedbackLoopDynamicState"
@@ -522,7 +509,7 @@ PYEOF2
         fi
     done
 
-    # ── 3. Force present/swapchain extensions ──
+    # 3. Force present/swapchain extensions
     if grep -q "VK_KHR_present_wait" "$tu_device" 2>/dev/null; then
         sed -i 's/\(VK_KHR_present_wait[^2].*\)false/\1true/g' "$tu_device" 2>/dev/null || true
         log_info "Forced: VK_KHR_present_wait"
@@ -540,7 +527,7 @@ PYEOF2
         log_info "Forced: attachment_feedback_loop"
     fi
 
-    # ── 4. Add VK_KHR_present_wait2 / VK_KHR_present_id2 to tu_extensions.py ──
+    # 4. Add VK_KHR_present_wait2 / VK_KHR_present_id2 to tu_extensions.py
     if [[ -f "$tu_extensions_py" ]]; then
         local new_py_exts=(
             "VK_KHR_present_wait2"
@@ -558,7 +545,6 @@ PYEOF2
     log_success "Vulkan extensions support applied"
 }
 
-# ──────────────────────────────────────────────
 apply_patches() {
     log_info "Applying patches for A7xx"
     cd "$MESA_DIR"
@@ -602,7 +588,6 @@ apply_patches() {
     log_success "All patches applied"
 }
 
-# ──────────────────────────────────────────────
 setup_subprojects() {
     log_info "Setting up subprojects"
     cd "$MESA_DIR"
@@ -614,7 +599,6 @@ setup_subprojects() {
     log_success "Subprojects ready"
 }
 
-# ──────────────────────────────────────────────
 create_cross_file() {
     log_info "Creating cross-compilation file"
     local ndk_bin="${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -649,10 +633,11 @@ EOF
     log_success "Cross-compilation file created"
 }
 
-# ──────────────────────────────────────────────
 configure_build() {
     log_info "Configuring Mesa build"
     cd "$MESA_DIR"
+    # Note: debug builds may expose fewer extensions due to Mesa validation layers
+    # Extensions count: release ~175+ | debug ~131 (Mesa disables some EXT paths)
     meson setup build                                  \
         --cross-file "${WORKDIR}/cross-aarch64.txt"   \
         -Dbuildtype="$BUILD_TYPE"                      \
@@ -682,7 +667,6 @@ configure_build() {
     log_success "Build configured"
 }
 
-# ──────────────────────────────────────────────
 compile_driver() {
     log_info "Compiling Turnip driver"
     local cores=$(nproc 2>/dev/null || echo 4)
@@ -692,7 +676,6 @@ compile_driver() {
     log_success "Compilation complete"
 }
 
-# ──────────────────────────────────────────────
 package_driver() {
     log_info "Packaging driver"
     local version=$(cat "${WORKDIR}/version.txt")
@@ -742,7 +725,6 @@ EOF
     log_success "Package created: ${filename}.zip ($driver_size)"
 }
 
-# ──────────────────────────────────────────────
 print_summary() {
     local version=$(cat "${WORKDIR}/version.txt")
     local commit=$(cat "${WORKDIR}/commit.txt")
@@ -761,7 +743,6 @@ print_summary() {
     echo ""
 }
 
-# ──────────────────────────────────────────────
 main() {
     log_info "Turnip Driver Builder"
     log_info "Configuration: variant=$BUILD_VARIANT, source=$MESA_SOURCE, type=$BUILD_TYPE"
