@@ -345,19 +345,18 @@ apply_a6xx_query_fix() {
 }
 
 apply_vulkan_extensions_support() {
-    log_info "Enabling additional Vulkan extensions"
+    log_info "Enabling additional Vulkan extensions via Python injection"
     local tu_device="${MESA_DIR}/src/freedreno/vulkan/tu_device.cc"
     local vk_extensions_py="${MESA_DIR}/src/vulkan/util/vk_extensions.py"
-    local tu_extensions_py="${MESA_DIR}/src/freedreno/vulkan/tu_extensions.py"
 
     [[ ! -f "$tu_device" ]] && { log_warn "tu_device.cc not found"; return 0; }
 
-    # 1. Add missing extensions to ALLOWED_ANDROID_VERSION in vk_extensions.py
+    # 1. Patch vk_extensions.py — add extensions to ALLOWED_ANDROID_VERSION
     if [[ -f "$vk_extensions_py" ]]; then
-        python3 << 'PYEOF'
-import re
+        cat > "${WORKDIR}/patch_vk_exts.py" << 'PYEOF'
+import sys, re
 
-filepath = '__VK_EXT_FILE__'
+filepath = sys.argv[1]
 with open(filepath, 'r') as f:
     content = f.read()
 
@@ -373,191 +372,266 @@ new_exts = {
     '"VK_EXT_shader_replicated_composites"': 35,
     '"VK_EXT_map_memory_placed"': 35,
     '"VK_EXT_depth_clamp_control"': 35,
-    '"VK_EXT_depth_clip_control"': 35,
-    '"VK_EXT_depth_clip_enable"': 35,
     '"VK_EXT_vertex_input_dynamic_state"': 33,
     '"VK_EXT_extended_dynamic_state3"': 34,
     '"VK_EXT_image_2d_view_of_3d"': 33,
-    '"VK_EXT_image_sliced_view_of_3d"': 34,
     '"VK_EXT_pipeline_robustness"': 33,
     '"VK_EXT_graphics_pipeline_library"': 33,
     '"VK_EXT_mesh_shader"': 33,
     '"VK_EXT_mutable_descriptor_type"': 33,
-    '"VK_EXT_non_seamless_cube_map"': 33,
-    '"VK_EXT_opacity_micromap"': 34,
-    '"VK_EXT_pageable_device_local_memory"': 33,
-    '"VK_EXT_physical_device_drm"': 33,
-    '"VK_EXT_pipeline_library_group_handles"': 34,
-    '"VK_EXT_primitives_generated_query"': 33,
-    '"VK_EXT_primitive_topology_list_restart"': 33,
-    '"VK_EXT_rasterization_order_attachment_access"': 33,
-    '"VK_EXT_shader_atomic_float2"': 33,
     '"VK_EXT_shader_module_identifier"': 33,
     '"VK_EXT_shader_object"': 34,
-    '"VK_EXT_subpass_merge_feedback"': 33,
     '"VK_EXT_image_compression_control"': 33,
     '"VK_EXT_image_compression_control_swapchain"': 33,
     '"VK_EXT_frame_boundary"': 35,
     '"VK_EXT_nested_command_buffer"': 35,
     '"VK_EXT_dynamic_rendering_unused_attachments"': 34,
     '"VK_EXT_host_image_copy"': 35,
-    '"VK_KHR_fragment_shading_rate"': 33,
-    '"VK_EXT_filter_cubic"': 33,
-    '"VK_IMG_filter_cubic"': 33,
-    '"VK_EXT_sample_locations"': 33,
-    '"VK_EXT_texture_compression_astc_hdr"': 33,
-    '"VK_EXT_calibrated_timestamps"': 33,
-    '"VK_EXT_conservative_rasterization"': 33,
-    '"VK_AMD_shader_fragment_mask"': 33,
-    '"VK_KHR_shader_atomic_int64"': 33,
-    '"VK_KHR_8bit_storage"': 33,
-    '"VK_KHR_16bit_storage"': 33,
-    '"VK_VALVE_mutable_descriptor_type"': 33,
+    '"VK_EXT_descriptor_buffer"': 34,
+    '"VK_EXT_opacity_micromap"': 34,
+    '"VK_EXT_pipeline_library_group_handles"': 34,
+    '"VK_EXT_primitives_generated_query"': 33,
+    '"VK_EXT_primitive_topology_list_restart"': 33,
+    '"VK_EXT_rasterization_order_attachment_access"': 33,
+    '"VK_EXT_subpass_merge_feedback"': 33,
     '"VK_EXT_memory_budget"': 33,
+    '"VK_EXT_conservative_rasterization"': 33,
+    '"VK_EXT_sample_locations"': 33,
+    '"VK_EXT_calibrated_timestamps"': 35,
+    '"VK_EXT_depth_bias_control"': 35,
+    '"VK_EXT_multi_draw"': 33,
+    '"VK_EXT_non_seamless_cube_map"': 33,
+    '"VK_EXT_pageable_device_local_memory"': 33,
+    '"VK_EXT_image_sliced_view_of_3d"': 34,
+    '"VK_EXT_pipeline_protected_access"': 34,
+    '"VK_EXT_shader_atomic_float"': 33,
+    '"VK_EXT_shader_atomic_float2"': 33,
     '"VK_EXT_display_control"': 33,
-    '"VK_KHR_ray_query"': 33,
-    '"VK_KHR_acceleration_structure"': 33,
-    '"VK_KHR_ray_tracing_maintenance1"': 33,
-    '"VK_KHR_deferred_host_operations"': 33,
-    '"VK_KHR_pipeline_library"': 33,
+    '"VK_EXT_full_screen_exclusive"': 33,
+    '"VK_KHR_ray_query"': 31,
+    '"VK_KHR_acceleration_structure"': 31,
+    '"VK_KHR_ray_tracing_maintenance1"': 34,
+    '"VK_KHR_ray_tracing_pipeline"': 31,
+    '"VK_KHR_deferred_host_operations"': 31,
+    '"VK_KHR_pipeline_library"': 31,
 }
 
-marker = '"VK_KHR_maintenance7": 36,'
+# Try multiple insertion markers
+markers = [
+    '"VK_KHR_maintenance7": 36,',
+    '"VK_KHR_maintenance6": 35,',
+    '"VK_KHR_maintenance5": 35,',
+    '"VK_ANDROID_native_buffer": 26,',
+]
+
 additions = []
 for ext_name, version in new_exts.items():
     if ext_name not in content:
         additions.append(f'    {ext_name}: {version},')
 
 if additions:
-    insert = '\n'.join(additions) + '\n    '
-    content = content.replace(marker, marker + '\n' + insert)
-
-with open(filepath, 'w') as f:
-    f.write(content)
+    for marker in markers:
+        if marker in content:
+            insert = '\n' + '\n'.join(additions)
+            content = content.replace(marker, marker + insert, 1)
+            with open(filepath, 'w') as f:
+                f.write(content)
+            print(f"[OK] Added {len(additions)} extensions after marker: {marker[:40]}")
+            break
+    else:
+        print(f"[WARN] No marker found, appending to ALLOWED_ANDROID_VERSION dict")
+        # Fallback: append before closing brace of ALLOWED_ANDROID_VERSION
+        insert = '\n' + '\n'.join(additions) + '\n'
+        content = content.replace('"VK_ANDROID_native_buffer": 26,\n}', 
+                                   '"VK_ANDROID_native_buffer": 26,' + insert + '}')
+        with open(filepath, 'w') as f:
+            f.write(content)
+        print(f"[OK] Appended {len(additions)} extensions via fallback")
+else:
+    print("[INFO] All extensions already present")
 PYEOF
-        sed -i "s/__VK_EXT_FILE__/$vk_extensions_py/g" /dev/stdin  # Placeholder replacement not needed in actual script
-        log_success "vk_extensions.py patched with new Android-allowed extensions"
+        python3 "${WORKDIR}/patch_vk_exts.py" "$vk_extensions_py"
+        log_success "vk_extensions.py patched"
     fi
 
-    # 2. Force-enable flags in tu_device.cc
-    local ext_flags=(
-        "attachmentFeedbackLoopLayout"
-        "attachmentFeedbackLoopDynamicState"
-        "swapchainMaintenance1"
-        "presentId"
-        "presentWait"
-        "shaderObject"
-        "meshShader"
-        "graphicsPipelineLibrary"
-        "hostImageCopy"
-        "nestedCommandBuffer"
-        "dynamicRenderingUnusedAttachments"
-        "primitivesGeneratedQuery"
-        "primitiveTopologyListRestart"
-        "depthClipControl"
-        "depthClipEnable"
-        "fragmentShadingRate"
-        "filterCubic"
-        "sampleLocations"
-        "textureCompressionASTC_HDR"
-        "calibratedTimestamps"
-        "conservativeRasterization"
-        "shaderFragmentMask"
-        "shaderAtomicInt64"
-        "8BitStorage"
-        "16BitStorage"
-        "mutableDescriptorType"
-        "memoryBudget"
-        "displayControl"
-        "rayQuery"
-        "accelerationStructure"
-        "rayTracingMaintenance1"
-        "deferredHostOperations"
-        "pipelineLibrary"
-        "shaderFloat64"
-        "shaderStorageImageMultisample"
-        "uniformAndStorageBuffer16BitAccess"
-        "storagePushConstant16"
-        "uniformAndStorageBuffer8BitAccess"
-        "storagePushConstant8"
-        "shaderSharedInt64Atomics"
-        "shaderBufferInt64Atomics"
-        "independentResolve"
-        "independentResolveNone"
-        "shaderDenormPreserveFloat16"
-        "shaderDenormFlushToZeroFloat16"
-        "shaderRoundingModeRTZFloat16"
-        "samplerFilterMinmax"
-        "fragmentDensityMapDynamic"
-        "integerDotProduct8BitUnsignedAccelerated"
-        "maintenance5"
-        "maintenance6"
-        "maintenance7"
-        "maintenance8"
-        "taskShader"
+    # 2. Python injection into tu_device.cc
+    # Uses multiple regex strategies to handle different Mesa versions
+    cat > "${WORKDIR}/inject_extensions.py" << 'PYEOF'
+import sys, re
+
+file_path = sys.argv[1]
+
+try:
+    with open(file_path, 'r') as f:
+        content = f.read()
+
+    # Force internal feature flags
+    feats = [
+        "shaderFloat64", "shaderStorageImageMultisample",
+        "uniformAndStorageBuffer16BitAccess", "storagePushConstant16",
+        "uniformAndStorageBuffer8BitAccess", "storagePushConstant8",
+        "shaderSharedInt64Atomics", "shaderBufferInt64Atomics",
+        "independentResolve", "independentResolveNone",
+        "shaderDenormPreserveFloat16", "shaderDenormFlushToZeroFloat16",
+        "shaderRoundingModeRTZFloat16", "samplerFilterMinmax",
+        "textureCompressionASTC_HDR",
+        "integerDotProduct8BitUnsignedAccelerated",
+        "shaderObject", "mutableDescriptorType",
+        "maintenance5", "maintenance6", "maintenance7",
+        "meshShader", "taskShader", "rayQuery", "accelerationStructure",
+        "fragmentDensityMapDynamic",
+    ]
+
+    count_feat = 0
+    for prop in feats:
+        if "integerDotProduct" in prop:
+            regex = r'((?:p|features|props)->integerDotProduct\w+\s*=\s*)([^;]+)(;)'
+            new, n = re.subn(regex, r'\1true\3', content)
+            if n: content = new; count_feat += n
+        else:
+            regex = rf'((?:p|features|props)->{re.escape(prop)}\s*=\s*)([^;]+)(;)'
+            new, n = re.subn(regex, r'\1true\3', content)
+            if n: content = new; count_feat += n
+    print(f"[OK] Forced {count_feat} feature flags")
+
+    # Strategy 1: find get_device_extensions with full signature (newer Mesa)
+    sig = re.search(
+        r'get_device_extensions\s*\([^)]*struct\s+tu_physical_device\s*\*\s*(\w+)[^)]*'
+        r'struct\s+vk_device_extension_table\s*\*\s*(\w+)',
+        content, re.DOTALL
     )
 
-    for flag in "${ext_flags[@]}"; do
-        if grep -q "\.${flag}" "$tu_device" 2>/dev/null; then
-            sed -i "s/\.${flag}\s*=\s*false/.${flag} = true/g" "$tu_device" 2>/dev/null || true
-            log_info "Enabled flag: .$flag"
-        fi
-    done
-
-    # 3. Force present/swapchain extensions
-    if grep -q "VK_KHR_present_wait" "$tu_device" 2>/dev/null; then
-        sed -i 's/\(VK_KHR_present_wait[^2].*\)false/\1true/g' "$tu_device" 2>/dev/null || true
-        log_info "Forced: VK_KHR_present_wait"
-    fi
-    if grep -q "VK_KHR_present_id" "$tu_device" 2>/dev/null; then
-        sed -i 's/\(VK_KHR_present_id[^2].*\)false/\1true/g' "$tu_device" 2>/dev/null || true
-        log_info "Forced: VK_KHR_present_id"
-    fi
-    if grep -q "swapchain_maintenance1" "$tu_device" 2>/dev/null; then
-        sed -i 's/\(swapchain_maintenance1.*\)false/\1true/g' "$tu_device" 2>/dev/null || true
-        log_info "Forced: swapchain_maintenance1"
-    fi
-    if grep -q "attachment_feedback_loop" "$tu_device" 2>/dev/null; then
-        sed -i 's/\(attachment_feedback_loop.*\)false/\1true/g' "$tu_device" 2>/dev/null || true
-        log_info "Forced: attachment_feedback_loop"
-    fi
-
-    # 4. Add VK_KHR_present_wait2 / VK_KHR_present_id2 to tu_extensions.py
-    if [[ -f "$tu_extensions_py" ]]; then
-        local new_py_exts=(
-            "VK_KHR_present_wait2"
-            "VK_KHR_present_id2"
-            "VK_KHR_maintenance5"
-            "VK_KHR_maintenance6"
-            "VK_KHR_maintenance7"
-            "VK_KHR_maintenance8"
+    # Strategy 2: simpler signature match (older Mesa)
+    if not sig:
+        sig = re.search(
+            r'void\s+tu_get_device_extensions\s*\([^)]*(\w+)\s*,\s*'
+            r'struct\s+vk_device_extension_table\s*\*\s*(\w+)',
+            content, re.DOTALL
         )
-        for ext in "${new_py_exts[@]}"; do
-            if ! grep -q "\"${ext}\"" "$tu_extensions_py" 2>/dev/null; then
-                sed -i "/\"VK_KHR_present_wait\"/a\\    Extension(\"${ext}\", 1, True)," \
-                    "$tu_extensions_py" 2>/dev/null || true
-                log_info "Added: $ext → tu_extensions.py"
-            fi
-        done
-    fi
+
+    # Strategy 3: find any function that sets extension flags
+    if not sig:
+        sig = re.search(
+            r'(tu_physical_device|pdevice|pdev)\b.*?'
+            r'vk_device_extension_table\s*\*\s*(\w+)',
+            content, re.DOTALL
+        )
+
+    # Strategy 4: find ext->KHR_swapchain pattern and inject near it
+    if not sig:
+        # Find last known extension assignment and inject after it
+        last_ext = None
+        for m in re.finditer(r'(\w+)->(KHR|EXT|AMD|VALVE|IMG)\w+\s*=\s*(true|false)\s*;', content):
+            last_ext = m
+        if last_ext:
+            ext_var = last_ext.group(1)
+            pos = last_ext.end()
+            print(f"[Strategy 4] Using ext_var='{ext_var}' from last extension assignment")
+
+            code = build_injection_code(ext_var)
+            content = content[:pos] + '\n' + code + content[pos:]
+            with open(file_path, 'w') as f:
+                f.write(content)
+            print("[OK] Injected via Strategy 4 (last extension pattern)")
+            sys.exit(0)
+
+    def build_injection_code(ext_var):
+        return f"""
+    // === INJECTED EXTENSIONS ===
+    // Maintenance
+    {ext_var}->KHR_maintenance5 = true; {ext_var}->KHR_maintenance6 = true;
+    {ext_var}->KHR_maintenance7 = true;
+
+    // Present & Swapchain
+    {ext_var}->KHR_present_wait = true; {ext_var}->KHR_present_id = true;
+    {ext_var}->KHR_swapchain_maintenance1 = true;
+    {ext_var}->EXT_swapchain_maintenance1 = true;
+
+    // Core improvements
+    {ext_var}->EXT_primitives_generated_query = true;
+    {ext_var}->EXT_primitive_topology_list_restart = true;
+    {ext_var}->EXT_depth_clip_control = true;
+    {ext_var}->EXT_depth_clip_enable = true;
+    {ext_var}->EXT_depth_bias_control = true;
+    {ext_var}->EXT_attachment_feedback_loop_layout = true;
+    {ext_var}->EXT_attachment_feedback_loop_dynamic_state = true;
+    {ext_var}->KHR_fragment_shading_rate = true;
+    {ext_var}->EXT_sample_locations = true;
+    {ext_var}->EXT_texture_compression_astc_hdr = true;
+    {ext_var}->EXT_calibrated_timestamps = true;
+    {ext_var}->EXT_conservative_rasterization = true;
+    {ext_var}->EXT_multi_draw = true;
+    {ext_var}->EXT_non_seamless_cube_map = true;
+    {ext_var}->EXT_pageable_device_local_memory = true;
+    {ext_var}->KHR_shader_atomic_int64 = true;
+    {ext_var}->KHR_8bit_storage = true; {ext_var}->KHR_16bit_storage = true;
+    {ext_var}->EXT_shader_object = true;
+    {ext_var}->EXT_mutable_descriptor_type = true;
+    {ext_var}->VALVE_mutable_descriptor_type = true;
+    {ext_var}->EXT_memory_budget = true;
+    {ext_var}->EXT_descriptor_buffer = true;
+    {ext_var}->EXT_graphics_pipeline_library = true;
+    {ext_var}->EXT_shader_module_identifier = true;
+    {ext_var}->EXT_image_compression_control = true;
+    {ext_var}->EXT_image_compression_control_swapchain = true;
+    {ext_var}->EXT_host_image_copy = true;
+    {ext_var}->EXT_nested_command_buffer = true;
+    {ext_var}->EXT_dynamic_rendering_unused_attachments = true;
+    {ext_var}->EXT_frame_boundary = true;
+    {ext_var}->EXT_shader_atomic_float = true;
+    {ext_var}->EXT_shader_atomic_float2 = true;
+    {ext_var}->EXT_shader_replicated_composites = true;
+    {ext_var}->EXT_image_2d_view_of_3d = true;
+    {ext_var}->EXT_image_sliced_view_of_3d = true;
+    {ext_var}->EXT_rasterization_order_attachment_access = true;
+    {ext_var}->EXT_subpass_merge_feedback = true;
+    {ext_var}->EXT_pipeline_protected_access = true;
+    {ext_var}->EXT_device_fault = true;
+
+    // Mesh + RT
+    {ext_var}->EXT_mesh_shader = true;
+    {ext_var}->KHR_ray_query = true;
+    {ext_var}->KHR_acceleration_structure = true;
+    {ext_var}->KHR_ray_tracing_pipeline = true;
+    {ext_var}->KHR_ray_tracing_maintenance1 = true;
+    {ext_var}->KHR_deferred_host_operations = true;
+    {ext_var}->KHR_pipeline_library = true;
+    {ext_var}->EXT_opacity_micromap = true;
+    {ext_var}->EXT_pipeline_library_group_handles = true;
+    // === END INJECTED ===
+"""
+
+    if sig:
+        pdev_var = sig.group(1)
+        ext_var  = sig.group(2)
+        func_start = sig.end()
+
+        # Find closing }; of the function's first struct initializer or end of function
+        closure = re.search(r'\};', content[func_start:])
+        if closure:
+            pos = func_start + closure.end()
+            code = build_injection_code(ext_var)
+            content = content[:pos] + code + content[pos:]
+            print(f"[OK] Strategy 1/2/3 — pdev={pdev_var}, ext={ext_var}")
+        else:
+            print("[WARN] Could not find closing }; in function")
+    else:
+        print("[WARN] No injection strategy matched — tu_device.cc not modified")
+
+    with open(file_path, 'w') as f:
+        f.write(content)
+
+except Exception as e:
+    print(f"[ERROR] {e}")
+    import traceback; traceback.print_exc()
+    sys.exit(1)
+PYEOF
+
+    python3 "${WORKDIR}/inject_extensions.py" "$tu_device" || {
+        log_warn "Python injection had issues, continuing..."
+    }
 
     log_success "Vulkan extensions support applied"
-}
-
-apply_uncached_memory_fix() {
-    log_info "Applying uncached memory fix for stability"
-    local tu_device_cc="${MESA_DIR}/src/freedreno/vulkan/tu_device.cc"
-
-    if [[ -f "$tu_device_cc" ]]; then
-        sed -i 's/physical_device->has_cached_coherent_memory = .*/physical_device->has_cached_coherent_memory = false;/' "$tu_device_cc" || true
-    fi
-
-    grep -rl "VK_MEMORY_PROPERTY_HOST_CACHED_BIT" "${MESA_DIR}/src/freedreno/vulkan/" | while read file; do
-        sed -i 's/dev->physical_device->has_cached_coherent_memory ? VK_MEMORY_PROPERTY_HOST_CACHED_BIT : 0/0/g' "$file" || true
-        sed -i 's/VK_MEMORY_PROPERTY_HOST_CACHED_BIT/0/g' "$file" || true
-    done
-
-    log_success "Uncached memory fix applied"
 }
 
 apply_patches() {
@@ -574,7 +648,6 @@ apply_patches() {
     apply_gralloc_ubwc_fix
     apply_deck_emu_support
     apply_vulkan_extensions_support
-    apply_uncached_memory_fix
 
     if [[ "$BUILD_VARIANT" == "autotuner" ]]; then
         apply_a6xx_query_fix
