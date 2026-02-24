@@ -360,17 +360,159 @@ apply_a6xx_query_fix() {
 apply_vulkan_extensions_support() {
     log_info "Enabling additional Vulkan extensions"
     local tu_device="${MESA_DIR}/src/freedreno/vulkan/tu_device.cc"
-    local tu_extensions="${MESA_DIR}/src/freedreno/vulkan/tu_extensions.py"
+    local vk_extensions_py="${MESA_DIR}/src/vulkan/util/vk_extensions.py"
+    local tu_extensions_py="${MESA_DIR}/src/freedreno/vulkan/tu_extensions.py"
 
     [[ ! -f "$tu_device" ]] && { log_warn "tu_device.cc not found"; return 0; }
 
-    # ── 1. Force-enable extension flags in tu_device.cc ──
+    # ── 1. Add missing extensions to ALLOWED_ANDROID_VERSION in vk_extensions.py ──
+    # These extensions are not yet whitelisted for Android but are valid
+    if [[ -f "$vk_extensions_py" ]]; then
+        python3 << 'PYEOF'
+import re
+
+with open('__VK_EXT_FILE__', 'r') as f:
+    content = f.read()
+
+# New extensions to add to ALLOWED_ANDROID_VERSION
+new_exts = {
+    # KHR present/swapchain extensions
+    '"VK_KHR_present_wait2"': 36,
+    '"VK_KHR_present_id2"': 36,
+    '"VK_KHR_swapchain_maintenance1"': 35,
+    # EXT extensions
+    '"VK_EXT_swapchain_maintenance1"': 35,
+    '"VK_EXT_attachment_feedback_loop_layout"': 34,
+    '"VK_EXT_attachment_feedback_loop_dynamic_state"': 35,
+    '"VK_EXT_device_fault"': 34,
+    '"VK_EXT_device_address_binding_report"': 34,
+    '"VK_EXT_shader_replicated_composites"': 35,
+    '"VK_EXT_map_memory_placed"': 35,
+    '"VK_EXT_depth_clamp_control"': 35,
+    '"VK_EXT_vertex_input_dynamic_state"': 33,
+    '"VK_EXT_extended_dynamic_state3"': 34,
+    '"VK_EXT_image_2d_view_of_3d"': 33,
+    '"VK_EXT_image_sliced_view_of_3d"': 34,
+    '"VK_EXT_pipeline_robustness"': 33,
+    '"VK_EXT_graphics_pipeline_library"': 33,
+    '"VK_EXT_mesh_shader"': 33,
+    '"VK_EXT_mutable_descriptor_type"': 33,
+    '"VK_EXT_non_seamless_cube_map"': 33,
+    '"VK_EXT_opacity_micromap"': 34,
+    '"VK_EXT_pageable_device_local_memory"': 33,
+    '"VK_EXT_physical_device_drm"': 33,
+    '"VK_EXT_pipeline_library_group_handles"': 34,
+    '"VK_EXT_primitives_generated_query"': 33,
+    '"VK_EXT_primitive_topology_list_restart"': 33,
+    '"VK_EXT_rasterization_order_attachment_access"': 33,
+    '"VK_EXT_shader_atomic_float2"': 33,
+    '"VK_EXT_shader_module_identifier"': 33,
+    '"VK_EXT_shader_object"': 34,
+    '"VK_EXT_subpass_merge_feedback"': 33,
+    '"VK_EXT_image_compression_control"': 33,
+    '"VK_EXT_image_compression_control_swapchain"': 33,
+    '"VK_EXT_frame_boundary"': 35,
+    '"VK_EXT_nested_command_buffer"': 35,
+    '"VK_EXT_dynamic_rendering_unused_attachments"': 34,
+    '"VK_EXT_host_image_copy"': 35,
+}
+
+marker = '"VK_KHR_maintenance7": 36,'
+additions = []
+for ext_name, version in new_exts.items():
+    if ext_name not in content:
+        additions.append(f'    {ext_name}: {version},')
+
+if additions:
+    insert = '\n'.join(additions) + '\n    '
+    content = content.replace(marker, marker + '\n' + insert)
+
+with open('__VK_EXT_FILE__', 'w') as f:
+    f.write(content)
+
+print(f"Added {len(additions)} extensions to ALLOWED_ANDROID_VERSION")
+PYEOF
+        # Replace placeholder with actual path
+        local py_script="${WORKDIR}/patch_vk_exts.py"
+        cp /dev/stdin "$py_script" << 'PYEOF2'
+import re, sys
+
+filepath = sys.argv[1]
+with open(filepath, 'r') as f:
+    content = f.read()
+
+new_exts = {
+    '"VK_KHR_present_wait2"': 36,
+    '"VK_KHR_present_id2"': 36,
+    '"VK_KHR_swapchain_maintenance1"': 35,
+    '"VK_EXT_swapchain_maintenance1"': 35,
+    '"VK_EXT_attachment_feedback_loop_layout"': 34,
+    '"VK_EXT_attachment_feedback_loop_dynamic_state"': 35,
+    '"VK_EXT_device_fault"': 34,
+    '"VK_EXT_device_address_binding_report"': 34,
+    '"VK_EXT_shader_replicated_composites"': 35,
+    '"VK_EXT_map_memory_placed"': 35,
+    '"VK_EXT_depth_clamp_control"': 35,
+    '"VK_EXT_vertex_input_dynamic_state"': 33,
+    '"VK_EXT_extended_dynamic_state3"': 34,
+    '"VK_EXT_image_2d_view_of_3d"': 33,
+    '"VK_EXT_image_sliced_view_of_3d"': 34,
+    '"VK_EXT_pipeline_robustness"': 33,
+    '"VK_EXT_graphics_pipeline_library"': 33,
+    '"VK_EXT_mesh_shader"': 33,
+    '"VK_EXT_mutable_descriptor_type"': 33,
+    '"VK_EXT_non_seamless_cube_map"': 33,
+    '"VK_EXT_pageable_device_local_memory"': 33,
+    '"VK_EXT_physical_device_drm"': 33,
+    '"VK_EXT_pipeline_library_group_handles"': 34,
+    '"VK_EXT_primitives_generated_query"': 33,
+    '"VK_EXT_primitive_topology_list_restart"': 33,
+    '"VK_EXT_rasterization_order_attachment_access"': 33,
+    '"VK_EXT_shader_atomic_float2"': 33,
+    '"VK_EXT_shader_module_identifier"': 33,
+    '"VK_EXT_shader_object"': 34,
+    '"VK_EXT_subpass_merge_feedback"': 33,
+    '"VK_EXT_image_compression_control"': 33,
+    '"VK_EXT_image_compression_control_swapchain"': 33,
+    '"VK_EXT_frame_boundary"': 35,
+    '"VK_EXT_nested_command_buffer"': 35,
+    '"VK_EXT_dynamic_rendering_unused_attachments"': 34,
+    '"VK_EXT_host_image_copy"': 35,
+}
+
+# Find insertion point — after the last KHR entry
+marker = '"VK_KHR_maintenance7": 36,'
+additions = []
+for ext_name, version in new_exts.items():
+    if ext_name not in content:
+        additions.append(f'    {ext_name}: {version},')
+
+if additions and marker in content:
+    insert = '\n' + '\n'.join(additions)
+    content = content.replace(marker, marker + insert)
+    with open(filepath, 'w') as f:
+        f.write(content)
+    print(f"[OK] Added {len(additions)} extensions")
+else:
+    print(f"[WARN] marker not found or no new extensions to add")
+PYEOF2
+        python3 "$py_script" "$vk_extensions_py"
+        log_success "vk_extensions.py patched with new Android-allowed extensions"
+    fi
+
+    # ── 2. Force-enable flags in tu_device.cc ──
     local ext_flags=(
         "attachmentFeedbackLoopLayout"
         "attachmentFeedbackLoopDynamicState"
         "swapchainMaintenance1"
         "presentId"
         "presentWait"
+        "shaderObject"
+        "meshShader"
+        "graphicsPipelineLibrary"
+        "hostImageCopy"
+        "nestedCommandBuffer"
+        "dynamicRenderingUnusedAttachments"
     )
 
     for flag in "${ext_flags[@]}"; do
@@ -380,50 +522,37 @@ apply_vulkan_extensions_support() {
         fi
     done
 
-    # ── 2. Add missing extensions to tu_extensions.py ──
-    if [[ -f "$tu_extensions" ]]; then
-        local py_exts=(
-            "VK_KHR_present_wait2"
-            "VK_KHR_present_id2"
-        )
-        for ext in "${py_exts[@]}"; do
-            if ! grep -q "\"${ext}\"" "$tu_extensions" 2>/dev/null; then
-                sed -i "/\"VK_KHR_present_wait\"/a\\    Extension(\"${ext}\", 1, True)," \
-                    "$tu_extensions" 2>/dev/null || true
-                log_info "Added to extensions.py: $ext"
-            fi
-        done
-    fi
-
-    # ── 3. Patch tu_device.cc to declare present_wait2 / present_id2 ──
-    cat << 'PATCH_EOF' > "${WORKDIR}/vulkan_exts.patch"
---- a/src/freedreno/vulkan/tu_device.cc
-+++ b/src/freedreno/vulkan/tu_device.cc
-@@ -1,6 +1,12 @@
- /* Vulkan extensions force-enable patch */
-+/* VK_KHR_present_wait2 / VK_KHR_present_id2 */
-PATCH_EOF
-
-    # Direct sed for VK_KHR_present_wait / VK_EXT_swapchain_maintenance1 blocks
-    # Enable present_wait if supported block exists
+    # ── 3. Force present/swapchain extensions ──
     if grep -q "VK_KHR_present_wait" "$tu_device" 2>/dev/null; then
-        sed -i 's/\(VK_KHR_present_wait.*\)false/\1true/g' "$tu_device" 2>/dev/null || true
+        sed -i 's/\(VK_KHR_present_wait[^2].*\)false/\1true/g' "$tu_device" 2>/dev/null || true
         log_info "Forced: VK_KHR_present_wait"
     fi
-
     if grep -q "VK_KHR_present_id" "$tu_device" 2>/dev/null; then
         sed -i 's/\(VK_KHR_present_id[^2].*\)false/\1true/g' "$tu_device" 2>/dev/null || true
         log_info "Forced: VK_KHR_present_id"
     fi
-
-    if grep -q "VK_KHR_swapchain_maintenance1\|VK_EXT_swapchain_maintenance1" "$tu_device" 2>/dev/null; then
+    if grep -q "swapchain_maintenance1" "$tu_device" 2>/dev/null; then
         sed -i 's/\(swapchain_maintenance1.*\)false/\1true/g' "$tu_device" 2>/dev/null || true
-        log_info "Forced: VK_KHR/EXT_swapchain_maintenance1"
+        log_info "Forced: swapchain_maintenance1"
+    fi
+    if grep -q "attachment_feedback_loop" "$tu_device" 2>/dev/null; then
+        sed -i 's/\(attachment_feedback_loop.*\)false/\1true/g' "$tu_device" 2>/dev/null || true
+        log_info "Forced: attachment_feedback_loop"
     fi
 
-    if grep -q "VK_EXT_attachment_feedback_loop" "$tu_device" 2>/dev/null; then
-        sed -i 's/\(attachment_feedback_loop.*\)false/\1true/g' "$tu_device" 2>/dev/null || true
-        log_info "Forced: VK_EXT_attachment_feedback_loop_*"
+    # ── 4. Add VK_KHR_present_wait2 / VK_KHR_present_id2 to tu_extensions.py ──
+    if [[ -f "$tu_extensions_py" ]]; then
+        local new_py_exts=(
+            "VK_KHR_present_wait2"
+            "VK_KHR_present_id2"
+        )
+        for ext in "${new_py_exts[@]}"; do
+            if ! grep -q "\"${ext}\"" "$tu_extensions_py" 2>/dev/null; then
+                sed -i "/\"VK_KHR_present_wait\"/a\\    Extension(\"${ext}\", 1, True)," \
+                    "$tu_extensions_py" 2>/dev/null || true
+                log_info "Added: $ext → tu_extensions.py"
+            fi
+        done
     fi
 
     log_success "Vulkan extensions support applied"
@@ -652,4 +781,3 @@ main() {
 }
 
 main "$@"
-
