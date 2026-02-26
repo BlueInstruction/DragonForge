@@ -1,4 +1,4 @@
-name: VKD3D-Proton (Maximum Performance)
+name: VKD3D-Proton (Maximum Performance - Fixed)
 
 on:
   schedule:
@@ -55,7 +55,6 @@ jobs:
           sudo apt-get install -y git meson ninja-build curl jq python3 glslang-tools spirv-tools zstd \
             gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 g++-mingw-w64-x86-64 g++-mingw-w64-i686 \
             mingw-w64 mingw-w64-tools binutils-mingw-w64
-          # Force POSIX threads and Win32 threading for max performance
           sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix 2>/dev/null || true
           sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix 2>/dev/null || true
           sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix 2>/dev/null || true
@@ -155,7 +154,7 @@ jobs:
               (r'(MaxSupportedFeatureLevel\s*=\s*)[^;]+;', r'\g<1>D3D_FEATURE_LEVEL_12_2;'),
               (r'(D3D12SDKVersion\s*=\s*)[^;]+;', r'\g<1>619;'),
 
-              # === Compute & Wave Ops (Optimized for 64-lane waves) ===
+              # === Compute & Wave Ops ===
               (r'(options1\.WaveOps\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options1\.WaveLaneCountMin\s*=\s*)[^;]+;', r'\g<1>32;'),
               (r'(options1\.WaveLaneCountMax\s*=\s*)[^;]+;', r'\g<1>64;'),
@@ -184,7 +183,6 @@ jobs:
               (r'(options12\.EnhancedBarriersSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options12\.RelaxedFormatCastingSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options16\.GPUUploadHeapSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'), 
-              # IMPORTANT: GPU Upload Heap can drastically improve performance on ReBAR systems
               
               # === Work Graphs & Execute Indirect ===
               (r'(options21\.WorkGraphsTier\s*=\s*)[^;]+;', r'\g<1>D3D12_WORK_GRAPHS_TIER_1_0;'),
@@ -200,7 +198,6 @@ jobs:
 
           patch_file("libs/vkd3d/device.c", gpu + dev)
 
-          # Walk other files for adapter/capabilities
           for root, dirs, files in os.walk("libs/vkd3d"):
               for f in files:
                   if not f.endswith((".c", ".h")): continue
@@ -216,36 +213,29 @@ jobs:
           PYSCRIPT
           python3 patch.py
 
-      - name: Build (Maximum Optimization)
+      - name: Build (Maximum Optimization - Fixed)
         if: steps.check.outputs.SKIP == 'false'
         run: |
           cd src
           
           # AGGRESSIVE COMPILER FLAGS:
-          # -march=x86-64-v3: Enables AVX2, FMA, BMI, etc. (Requires modern CPU: Haswell/Zen2+)
-          # -flto: Link Time Optimization (removes dead code, inlines across files)
-          # -ffast-math: Speed over IEEE strictness
-          # -fno-semantic-interposition: Allows better inlining
-          # -fno-stack-protector: Removes security canaries for speed
-          # -fno-ident: Strips compiler identification data
+          # -march=x86-64-v3: Enables AVX2, FMA (Requires modern CPU).
+          # -flto: Link Time Optimization.
+          # -ffast-math: Maximum floating point performance.
           
           COMMON_FLAGS="-O3 -pipe -DNDEBUG"
           ARCH_FLAGS="-march=x86-64-v3 -mtune=generic" 
           OPT_FLAGS="-flto=auto -ffat-lto-objects -ffast-math -fno-math-errno -fno-trapping-math -fno-semantic-interposition -fno-stack-protector -fno-ident"
           
-          # Disable AVX for x86 (32-bit) to maintain compatibility/speed balance
+          # Disable AVX for x86 (32-bit)
           X86_FLAGS="-march=i686 -mtune=generic -msse2 -mfpmath=sse"
 
           export CFLAGS="$COMMON_FLAGS $ARCH_FLAGS $OPT_FLAGS"
           export CXXFLAGS="$COMMON_FLAGS $ARCH_FLAGS $OPT_FLAGS"
-          export LDFLAGS="-Wl,--gc-sections -Wl,-z,norelro -Wl,--as-needed -s -flto=auto"
           
-          # Meson build args injection via environment doesn't always work for cross,
-          # so we rely on package-release.sh but pass env vars explicitly if possible.
-          # package-release.sh calls meson setup. We can create a cross file to be safe,
-          # but usually CFLAGS/LDFLAGS are respected by the build system wrappers.
+          # FIXED LDFLAGS: Removed '-z norelro' (incompatible with MinGW/Windows)
+          export LDFLAGS="-Wl,--gc-sections -Wl,--as-needed -s -flto=auto"
           
-          # Override LTO for 32-bit explicitly to avoid issues
           export CFLAGS_x86="$COMMON_FLAGS $X86_FLAGS $OPT_FLAGS"
           export CXXFLAGS_x86="$COMMON_FLAGS $X86_FLAGS $OPT_FLAGS"
           export LDFLAGS_x86="-Wl,--gc-sections -s -flto=auto"
@@ -324,15 +314,14 @@ jobs:
           name: "VKD3D Proton MAX ${{ env.VER }} (${{ env.BUILD_DATE }})"
           files: ${{ env.PKG }}.wcp
           body: |
-            **Ultimate Performance Build**
+            **Ultimate Performance Build (Fixed)**
             
             Optimized for modern CPUs (AVX2/FMA support required).
             
             **Build Features:**
-            - **Compiler:** GCC `-O3`, `-flto` (Link Time Optimization), `-ffast-math`.
+            - **Compiler:** GCC `-O3`, `-flto`, `-ffast-math`.
             - **Instruction Set:** `x86-64-v3` (AVX2, BMI, FMA enabled).
             - **Patches:** Work Graphs, GPU Upload Heaps, Enhanced Barriers.
-            - **Memory:** Faked VRAM pools to reduce streaming stutter.
             
             **Source:** ${{ env.TAG }}
           draft: false
