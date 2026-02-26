@@ -1,4 +1,4 @@
-name: VKD3D-Proton (Maximum Performance - Fixed)
+name: VKD3D-Proton
 
 on:
   schedule:
@@ -9,7 +9,7 @@ on:
         type: boolean
         default: false
       VERSION:
-        description: "Version (e.g., v2.12)"
+        description: "Version (e.g., v3.0b)"
         required: false
         default: ""
       BUILD_TYPE:
@@ -94,7 +94,7 @@ jobs:
           echo "COMMIT=$COMMIT" >> $GITHUB_ENV
           echo "BUILD_ID=${{ env.VER }}-MAX-${COMMIT:0:7}" >> $GITHUB_ENV
 
-      - name: Apply Ultimate Performance Patches
+      - name: Apply Ultimate Performance Patches (Fixed RAM Usage)
         if: steps.check.outputs.SKIP == 'false'
         run: |
           cd src
@@ -104,7 +104,7 @@ jobs:
           sed -i 's/device->use_unified_image_layouts = true/device->use_unified_image_layouts = false/g' libs/vkd3d/device.c || true
           sed -i 's/device->enable_strict_barriers = true/device->enable_strict_barriers = false/g' libs/vkd3d/resource.c || true
           
-          # 2. Advanced Feature & Memory Patches
+          # 2. Optimized Memory & Feature Patches
           cat > patch.py << 'PYSCRIPT'
           import re, os, sys
 
@@ -136,14 +136,14 @@ jobs:
                   except Exception as e:
                       errors.append(f"Write error {path}: {e}")
 
-          # Aggressive GPU Spoofing & Memory Tweaks
+          # Memory & GPU Tweaks
           gpu = [
               (r'(adapter_id\.vendor_id\s*(?<!=)=(?!=)\s*)[^;]+;', r'\g<1>0x1002;'), # AMD
               (r'(adapter_id\.device_id\s*(?<!=)=(?!=)\s*)[^;]+;', r'\g<1>0x163f;'),
-              # Fake huge VRAM to prevent streaming stutter
-              (r'(DedicatedVideoMemory\s*(?<!=)=(?!=)\s*)[^;]+;', r'\g<1>16ULL * 1024 * 1024 * 1024;'),
+              
               (r'(SharedSystemMemory\s*(?<!=)=(?!=)\s*)[^;]+;', r'\g<1>32ULL * 1024 * 1024 * 1024;'),
-              (r'(\.UMA\s*=\s*)[^;]+;', r'\g<1>FALSE;'), # Force Non-UMA behavior
+              
+              (r'(\.UMA\s*=\s*)[^;]+;', r'\g<1>FALSE;'), 
               (r'(\.CacheCoherentUMA\s*=\s*)[^;]+;', r'\g<1>FALSE;'),
           ]
 
@@ -174,17 +174,17 @@ jobs:
               (r'(options7\.MeshShaderTier\s*=\s*)[^;]+;', r'\g<1>D3D12_MESH_SHADER_TIER_1;'),
               (r'(options7\.SamplerFeedbackTier\s*=\s*)[^;]+;', r'\g<1>D3D12_SAMPLER_FEEDBACK_TIER_1_0;'),
 
-              # === VRS (Variable Rate Shading) ===
+              # === VRS ===
               (r'(options6\.VariableShadingRateTier\s*=\s*)[^;]+;', r'\g<1>D3D12_VARIABLE_SHADING_RATE_TIER_2;'),
               (r'(options6\.AdditionalShadingRatesSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options10\.VariableRateShadingSumCombinerSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
 
-              # === Advanced Work Graphs & Barriers ===
+              # === Advanced Barriers ===
               (r'(options12\.EnhancedBarriersSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options12\.RelaxedFormatCastingSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'),
               (r'(options16\.GPUUploadHeapSupported\s*=\s*)[^;]+;', r'\g<1>TRUE;'), 
               
-              # === Work Graphs & Execute Indirect ===
+              # === Work Graphs ===
               (r'(options21\.WorkGraphsTier\s*=\s*)[^;]+;', r'\g<1>D3D12_WORK_GRAPHS_TIER_1_0;'),
               (r'(options21\.ExecuteIndirectTier\s*=\s*)[^;]+;', r'\g<1>D3D12_EXECUTE_INDIRECT_TIER_1_1;'),
 
@@ -213,7 +213,7 @@ jobs:
           PYSCRIPT
           python3 patch.py
 
-      - name: Build (Maximum Optimization - Fixed)
+      - name: Build
         if: steps.check.outputs.SKIP == 'false'
         run: |
           cd src
