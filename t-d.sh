@@ -20,13 +20,22 @@ MESA_MIRROR="https://github.com/mesa3d/mesa.git"
 AUTOTUNER_REPO="https://gitlab.freedesktop.org/PixelyIon/mesa.git"
 VULKAN_HEADERS_REPO="https://github.com/KhronosGroup/Vulkan-Headers.git"
 
-MESA_SOURCE="${MESA_SOURCE:-main_branch}"
+# User configurable variables
+MESA_SOURCE="${MESA_SOURCE:-main_branch}"          # latest_release, staging_branch, main_branch, custom_tag, latest_main
 STAGING_BRANCH="${STAGING_BRANCH:-staging/26.0}"
 CUSTOM_TAG="${CUSTOM_TAG:-}"
 BUILD_TYPE="${BUILD_TYPE:-release}"
-BUILD_VARIANT="${BUILD_VARIANT:-optimized}"
+BUILD_VARIANT="${BUILD_VARIANT:-optimized}"        # optimized, autotuner, vanilla, debug, profile
 NDK_PATH="${NDK_PATH:-/opt/android-ndk}"
 API_LEVEL="${API_LEVEL:-35}"
+TARGET_GPU="${TARGET_GPU:-a7xx}"                    # a6xx, a7xx, a8xx
+ENABLE_PERF="${ENABLE_PERF:-false}"                 # Enable performance options (e.g., freedreno-enable-perf)
+MESA_LOCAL_PATH="${MESA_LOCAL_PATH:-}"              # If set, use local Mesa source instead of cloning
+
+# Extra compiler flags
+CFLAGS_EXTRA="${CFLAGS_EXTRA:--O3 -march=armv8.2-a+fp16+rcpc+dotprod}"
+CXXFLAGS_EXTRA="${CXXFLAGS_EXTRA:--O3 -march=armv8.2-a+fp16+rcpc+dotprod}"
+LDFLAGS_EXTRA="${LDFLAGS_EXTRA:--Wl,--gc-sections}"
 
 check_deps() {
     local deps="git meson ninja patchelf zip ccache curl python3"
@@ -95,33 +104,52 @@ update_vulkan_headers() {
 
 clone_mesa() {
     log_info "Cloning Mesa source"
-    local clone_args=("--depth" "1")
+    local clone_args=()
     local target_ref=""
     local repo_url="$MESA_REPO"
+
+    # If local path is provided, use it instead of cloning
+    if [[ -n "$MESA_LOCAL_PATH" && -d "$MESA_LOCAL_PATH" ]]; then
+        log_info "Using local Mesa source at $MESA_LOCAL_PATH"
+        cp -r "$MESA_LOCAL_PATH" "$MESA_DIR"
+        cd "$MESA_DIR"
+        git config user.email "ci@turnip.builder"
+        git config user.name "Turnip CI Builder"
+        local version=$(get_mesa_version)
+        local commit=$(git rev-parse --short=8 HEAD)
+        echo "$version" > "${WORKDIR}/version.txt"
+        echo "$commit"  > "${WORKDIR}/commit.txt"
+        log_success "Mesa $version ($commit) ready (local)"
+        return
+    fi
 
     if [[ "$BUILD_VARIANT" == "autotuner" ]]; then
         repo_url="$AUTOTUNER_REPO"
         target_ref="tu-newat"
-        clone_args+=("--branch" "$target_ref")
+        clone_args=("--depth" "1" "--branch" "$target_ref")
         log_info "Using Autotuner branch: $target_ref"
     else
         case "$MESA_SOURCE" in
             latest_release)
                 target_ref=$(fetch_latest_release)
-                clone_args+=("--branch" "$target_ref")
+                clone_args=("--depth" "1" "--branch" "$target_ref")
                 ;;
             staging_branch)
                 target_ref="$STAGING_BRANCH"
-                clone_args+=("--branch" "$target_ref")
+                clone_args=("--depth" "1" "--branch" "$target_ref")
                 ;;
             main_branch)
                 target_ref="main"
-                clone_args+=("--branch" "main")
+                clone_args=("--depth" "1" "--branch" "main")
+                ;;
+            latest_main)
+                target_ref="main"
+                clone_args=("--branch" "main")  # Without --depth 1 to allow pulling updates
                 ;;
             custom_tag)
                 [[ -z "$CUSTOM_TAG" ]] && { log_error "Custom tag not specified"; exit 1; }
                 target_ref="$CUSTOM_TAG"
-                clone_args+=("--branch" "$target_ref")
+                clone_args=("--depth" "1" "--branch" "$target_ref")
                 ;;
         esac
         log_info "Target: $target_ref"
@@ -139,12 +167,19 @@ clone_mesa() {
     git config user.email "ci@turnip.builder"
     git config user.name "Turnip CI Builder"
 
+    # If latest_main, pull the latest updates
+    if [[ "$MESA_SOURCE" == "latest_main" ]]; then
+        git pull origin main
+    fi
+
     local version=$(get_mesa_version)
     local commit=$(git rev-parse --short=8 HEAD)
     echo "$version" > "${WORKDIR}/version.txt"
     echo "$commit"  > "${WORKDIR}/commit.txt"
     log_success "Mesa $version ($commit) ready"
 }
+
+# ================== Patch functions ==================
 
 apply_timeline_semaphore_fix() {
     log_info "Applying timeline semaphore optimization"
@@ -351,7 +386,7 @@ apply_vulkan_extensions_support() {
 
     [[ ! -f "$tu_device" ]] && { log_warn "tu_device.cc not found"; return 0; }
 
-    # 1. Patch vk_extensions.py — add extensions to ALLOWED_ANDROID_VERSION
+    # 1. Patch vk_extensions.py
     if [[ -f "$vk_extensions_py" ]]; then
         cat > "${WORKDIR}/patch_vk_exts.py" << 'PYEOF'
 import sys, re
@@ -416,7 +451,6 @@ new_exts = {
     '"VK_KHR_pipeline_library"': 31,
 }
 
-# Try multiple insertion markers
 markers = [
     '"VK_KHR_maintenance7": 36,',
     '"VK_KHR_maintenance6": 35,',
@@ -440,7 +474,6 @@ if additions:
             break
     else:
         print(f"[WARN] No marker found, appending to ALLOWED_ANDROID_VERSION dict")
-        # Fallback: append before closing brace of ALLOWED_ANDROID_VERSION
         insert = '\n' + '\n'.join(additions) + '\n'
         content = content.replace('"VK_ANDROID_native_buffer": 26,\n}', 
                                    '"VK_ANDROID_native_buffer": 26,' + insert + '}')
@@ -455,7 +488,6 @@ PYEOF
     fi
 
     # 2. Python injection into tu_device.cc
-    # Uses multiple regex strategies to handle different Mesa versions
     cat > "${WORKDIR}/inject_extensions.py" << 'PYEOF'
 import sys, re
 
@@ -465,7 +497,6 @@ try:
     with open(file_path, 'r') as f:
         content = f.read()
 
-    # Force internal feature flags
     feats = [
         "shaderFloat64", "shaderStorageImageMultisample",
         "uniformAndStorageBuffer16BitAccess", "storagePushConstant16",
@@ -494,14 +525,12 @@ try:
             if n: content = new; count_feat += n
     print(f"[OK] Forced {count_feat} feature flags")
 
-    # Strategy 1: find get_device_extensions with full signature (newer Mesa)
     sig = re.search(
         r'get_device_extensions\s*\([^)]*struct\s+tu_physical_device\s*\*\s*(\w+)[^)]*'
         r'struct\s+vk_device_extension_table\s*\*\s*(\w+)',
         content, re.DOTALL
     )
 
-    # Strategy 2: simpler signature match (older Mesa)
     if not sig:
         sig = re.search(
             r'void\s+tu_get_device_extensions\s*\([^)]*(\w+)\s*,\s*'
@@ -509,7 +538,6 @@ try:
             content, re.DOTALL
         )
 
-    # Strategy 3: find any function that sets extension flags
     if not sig:
         sig = re.search(
             r'(tu_physical_device|pdevice|pdev)\b.*?'
@@ -517,9 +545,7 @@ try:
             content, re.DOTALL
         )
 
-    # Strategy 4: find ext->KHR_swapchain pattern and inject near it
     if not sig:
-        # Find last known extension assignment and inject after it
         last_ext = None
         for m in re.finditer(r'(\w+)->(KHR|EXT|AMD|VALVE|IMG)\w+\s*=\s*(true|false)\s*;', content):
             last_ext = m
@@ -606,7 +632,6 @@ try:
         ext_var  = sig.group(2)
         func_start = sig.end()
 
-        # Find closing }; of the function's first struct initializer or end of function
         closure = re.search(r'\};', content[func_start:])
         if closure:
             pos = func_start + closure.end()
@@ -634,8 +659,16 @@ PYEOF
     log_success "Vulkan extensions support applied"
 }
 
+apply_a8xx_specific_patches() {
+    log_info "Applying A8xx specific patches (if any)"
+    local devices_py="${MESA_DIR}/src/freedreno/common/freedreno_devices.py"
+    if [[ -f "$devices_py" ]] && ! grep -q "a8xx_gen1" "$devices_py"; then
+        log_warn "A8xx device definitions not found in freedreno_devices.py; you may need to add them manually or pull latest main."
+    fi
+}
+
 apply_patches() {
-    log_info "Applying patches for A7xx"
+    log_info "Applying patches for $TARGET_GPU"
     cd "$MESA_DIR"
 
     if [[ "$BUILD_VARIANT" == "vanilla" ]]; then
@@ -649,21 +682,28 @@ apply_patches() {
     apply_deck_emu_support
     apply_vulkan_extensions_support
 
-    if [[ "$BUILD_VARIANT" == "autotuner" ]]; then
+    if [[ "$TARGET_GPU" == "a6xx" ]] && [[ "$BUILD_VARIANT" == "autotuner" ]]; then
         apply_a6xx_query_fix
+    fi
+
+    if [[ "$TARGET_GPU" == "a8xx" ]]; then
+        apply_a8xx_specific_patches
     fi
 
     if [[ -d "$PATCHES_DIR" ]]; then
         for patch in "$PATCHES_DIR"/*.patch; do
             [[ ! -f "$patch" ]] && continue
             local patch_name=$(basename "$patch")
-            if [[ "$patch_name" == *"a8xx"* ]] || [[ "$patch_name" == *"A8xx"* ]] || \
-               [[ "$patch_name" == *"810"*  ]] || [[ "$patch_name" == *"825"*  ]] || \
-               [[ "$patch_name" == *"829"*  ]] || [[ "$patch_name" == *"830"*  ]] || \
-               [[ "$patch_name" == *"840"*  ]] || [[ "$patch_name" == *"gen8"* ]]; then
-                log_info "Skipping A8xx patch: $patch_name"
+            
+            if [[ "$TARGET_GPU" != "a8xx" ]] && [[ "$patch_name" == *"a8xx"* ]]; then
+                log_info "Skipping A8xx patch (target is $TARGET_GPU): $patch_name"
                 continue
             fi
+            if [[ "$TARGET_GPU" != "a6xx" ]] && [[ "$patch_name" == *"a6xx"* ]]; then
+                log_info "Skipping A6xx patch (target is $TARGET_GPU): $patch_name"
+                continue
+            fi
+
             log_info "Applying: $patch_name"
             if git apply --check "$patch" 2>/dev/null; then
                 git apply "$patch"
@@ -678,12 +718,24 @@ apply_patches() {
 }
 
 setup_subprojects() {
-    log_info "Setting up subprojects"
+    log_info "Setting up subprojects with caching"
     cd "$MESA_DIR"
-    mkdir -p subprojects && cd subprojects
-    rm -rf spirv-tools spirv-headers
-    git clone --depth=1 https://github.com/KhronosGroup/SPIRV-Tools.git   spirv-tools
-    git clone --depth=1 https://github.com/KhronosGroup/SPIRV-Headers.git spirv-headers
+    mkdir -p subprojects
+    
+    local CACHE_DIR="${WORKDIR}/subprojects-cache"
+    mkdir -p "$CACHE_DIR"
+
+    for proj in spirv-tools spirv-headers; do
+        if [[ -d "$CACHE_DIR/$proj" ]]; then
+            log_info "Using cached $proj"
+            cp -r "$CACHE_DIR/$proj" subprojects/
+        else
+            log_info "Cloning $proj"
+            git clone --depth=1 "https://github.com/KhronosGroup/${proj}.git" "subprojects/$proj"
+            cp -r "subprojects/$proj" "$CACHE_DIR/"
+        fi
+    done
+
     cd "$MESA_DIR"
     log_success "Subprojects ready"
 }
@@ -714,10 +766,10 @@ cpu        = 'armv8'
 endian     = 'little'
 
 [built-in options]
-c_args        = ['-D__ANDROID__', '-Wno-error', '-Wno-deprecated-declarations']
-cpp_args      = ['-D__ANDROID__', '-Wno-error', '-Wno-deprecated-declarations']
-c_link_args   = ['-static-libstdc++']
-cpp_link_args = ['-static-libstdc++']
+c_args        = ['-D__ANDROID__', '-Wno-error', '-Wno-deprecated-declarations' ${CFLAGS_EXTRA:+ , ${CFLAGS_EXTRA}}]
+cpp_args      = ['-D__ANDROID__', '-Wno-error', '-Wno-deprecated-declarations' ${CXXFLAGS_EXTRA:+ , ${CXXFLAGS_EXTRA}}]
+c_link_args   = ['-static-libstdc++' ${LDFLAGS_EXTRA:+ , ${LDFLAGS_EXTRA}}]
+cpp_link_args = ['-static-libstdc++' ${LDFLAGS_EXTRA:+ , ${LDFLAGS_EXTRA}}]
 EOF
     log_success "Cross-compilation file created"
 }
@@ -725,33 +777,46 @@ EOF
 configure_build() {
     log_info "Configuring Mesa build"
     cd "$MESA_DIR"
-    # Note: debug builds may expose fewer extensions due to Mesa validation layers
-    # Extensions count: release ~175+ | debug ~131 (Mesa disables some EXT paths)
+
+    local perf_args=""
+    if [[ "$ENABLE_PERF" == "true" ]]; then
+        perf_args="-Dfreedreno-enable-perf=true -Dfreedreno-hw-level=latest"
+        log_info "Performance options enabled: $perf_args"
+    fi
+
+    local buildtype="$BUILD_TYPE"
+    if [[ "$BUILD_VARIANT" == "debug" ]]; then
+        buildtype="debug"
+    elif [[ "$BUILD_VARIANT" == "profile" ]]; then
+        buildtype="debugoptimized"
+    fi
+
     meson setup build                                  \
         --cross-file "${WORKDIR}/cross-aarch64.txt"   \
-        -Dbuildtype="$BUILD_TYPE"                      \
+        -Dbuildtype="$buildtype"                       \
         -Dplatforms=android                            \
         -Dplatform-sdk-version="$API_LEVEL"            \
-        -Dandroid-stub=true                            \
-        -Dgallium-drivers=                             \
-        -Dvulkan-drivers=freedreno                     \
-        -Dvulkan-beta=true                             \
-        -Dfreedreno-kmds=kgsl                          \
-        -Degl=disabled                                 \
-        -Dglx=disabled                                 \
-        -Dgles1=disabled                               \
-        -Dgles2=disabled                               \
-        -Dopengl=false                                 \
-        -Dgbm=disabled                                 \
-        -Dllvm=disabled                                \
-        -Dlibunwind=disabled                           \
-        -Dlmsensors=disabled                           \
-        -Dzstd=disabled                                \
-        -Dvalgrind=disabled                            \
-        -Dbuild-tests=false                            \
-        -Dwerror=false                                 \
-        -Ddefault_library=shared                       \
-        --force-fallback-for=spirv-tools,spirv-headers \
+        -Dandroid-stub=true                             \
+        -Dgallium-drivers=                              \
+        -Dvulkan-drivers=freedreno                      \
+        -Dvulkan-beta=true                              \
+        -Dfreedreno-kmds=kgsl                           \
+        -Degl=disabled                                  \
+        -Dglx=disabled                                  \
+        -Dgles1=disabled                                \
+        -Dgles2=disabled                                \
+        -Dopengl=false                                  \
+        -Dgbm=disabled                                  \
+        -Dllvm=disabled                                 \
+        -Dlibunwind=disabled                            \
+        -Dlmsensors=disabled                            \
+        -Dzstd=disabled                                 \
+        -Dvalgrind=disabled                             \
+        -Dbuild-tests=false                             \
+        -Dwerror=false                                  \
+        -Ddefault_library=shared                        \
+        $perf_args                                       \
+        --force-fallback-for=spirv-tools,spirv-headers  \
         2>&1 | tee "${WORKDIR}/meson.log"
     log_success "Build configured"
 }
@@ -773,7 +838,7 @@ package_driver() {
     local build_date=$(date +'%Y-%m-%d')
     local driver_src="${MESA_DIR}/build/src/freedreno/vulkan/libvulkan_freedreno.so"
     local pkg_dir="${WORKDIR}/package"
-    local driver_name="vulkan.ad07XX.so"
+    local driver_name="vulkan.${TARGET_GPU}.so"
 
     mkdir -p "$pkg_dir"
     cp "$driver_src" "${pkg_dir}/${driver_name}"
@@ -787,15 +852,17 @@ package_driver() {
         optimized) variant_suffix="opt"     ;;
         autotuner) variant_suffix="at"      ;;
         vanilla)   variant_suffix="vanilla" ;;
+        debug)     variant_suffix="debug"   ;;
+        profile)   variant_suffix="profile" ;;
     esac
 
-    local filename="turnip_a7xx_v${version}_${variant_suffix}_${build_date}"
+    local filename="turnip_${TARGET_GPU}_v${version}_${variant_suffix}_${build_date}"
 
     cat > "${pkg_dir}/meta.json" << EOF
 {
     "schemaVersion": 1,
-    "name": "Turnip A7xx ${BUILD_VARIANT}",
-    "description": "TurnipDriver",
+    "name": "Turnip ${TARGET_GPU} ${BUILD_VARIANT}",
+    "description": "Built from Mesa source",
     "author": "Blue",
     "packageVersion": "1",
     "vendor": "Mesa",
@@ -821,12 +888,14 @@ print_summary() {
     local build_date=$(cat "${WORKDIR}/build_date.txt")
     echo ""
     log_info "Build Summary"
+    echo "  Target GPU    : $TARGET_GPU"
     echo "  Mesa Version   : $version"
     echo "  Vulkan Version : $vulkan_version"
     echo "  Commit         : $commit"
     echo "  Build Date     : $build_date"
     echo "  Build Variant  : $BUILD_VARIANT"
     echo "  Source         : $MESA_SOURCE"
+    echo "  Performance    : $ENABLE_PERF"
     echo "  Output         :"
     ls -lh "${WORKDIR}"/*.zip 2>/dev/null | awk '{print "    " $9 " (" $5 ")"}'
     echo ""
@@ -834,7 +903,7 @@ print_summary() {
 
 main() {
     log_info "Turnip Driver Builder"
-    log_info "Configuration: variant=$BUILD_VARIANT, source=$MESA_SOURCE, type=$BUILD_TYPE"
+    log_info "Configuration: target=$TARGET_GPU, variant=$BUILD_VARIANT, source=$MESA_SOURCE, perf=$ENABLE_PERF"
 
     check_deps
     prepare_workdir
