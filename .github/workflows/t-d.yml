@@ -63,8 +63,16 @@ on:
 
       enable_deck_emu:
         type: boolean
-        description: "Enable deck_emu (Steam Deck identity)"
+        description: "Enable deck_emu (GPU identity spoof)"
         default: true
+
+      deck_emu_target:
+        type: choice
+        description: "GPU to spoof (nvidia = RTX 4090, amd = Steam Deck)"
+        default: "nvidia"
+        options:
+          - nvidia
+          - amd
 
       enable_timeline_hack:
         type: boolean
@@ -140,6 +148,7 @@ jobs:
           export TARGET_GPU="${{ inputs.target_gpu || 'a7xx' }}"
           export ENABLE_EXT_SPOOF="${{ inputs.enable_ext_spoof || 'true' }}"
           export ENABLE_DECK_EMU="${{ inputs.enable_deck_emu || 'true' }}"
+          export DECK_EMU_TARGET="${{ inputs.deck_emu_target || 'nvidia' }}"
           export ENABLE_TIMELINE_HACK="${{ inputs.enable_timeline_hack || 'true' }}"
           export ENABLE_UBWC_HACK="${{ inputs.enable_ubwc_hack || 'true' }}"
           export APPLY_PATCH_SERIES="${{ inputs.apply_patch_series || 'true' }}"
