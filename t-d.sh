@@ -329,31 +329,54 @@ apply_gralloc_ubwc_fix() {
     local gralloc_file="${MESA_DIR}/src/util/u_gralloc/u_gralloc_fallback.c"
     [[ ! -f "$gralloc_file" ]] && { log_warn "Gralloc file not found"; return 0; }
 
-    cat << 'PATCH_EOF' > "${WORKDIR}/gralloc.patch"
-diff --git a/src/util/u_gralloc/u_gralloc_fallback.c b/src/util/u_gralloc/u_gralloc_fallback.c
-index 44fb32d8cfd..bb6459c2e29 100644
---- a/src/util/u_gralloc/u_gralloc_fallback.c
-+++ b/src/util/u_gralloc/u_gralloc_fallback.c
-@@ -148,12 +148,11 @@ fallback_gralloc_get_buffer_info(struct u_gralloc *gralloc,
-    out->strides[0] = stride;
- 
- #ifdef HAS_FREEDRENO
--   uint32_t gmsm = ('g' << 24) | ('m' << 16) | ('s' << 8) | 'm';
--   if (hnd->handle->numInts >= 2 && hnd->handle->data[hnd->handle->numFds] == gmsm) {
--      bool ubwc = hnd->handle->data[hnd->handle->numFds + 1] & 0x08000000;
--      out->modifier = ubwc ? DRM_FORMAT_MOD_QCOM_COMPRESSED : DRM_FORMAT_MOD_LINEAR;
--   }
-+   if (hnd->handle->numInts >= 2) {
-+      bool ubwc = hnd->handle->data[hnd->handle->numFds + 1] & 0x08000000;
-+      out->modifier = ubwc ? DRM_FORMAT_MOD_QCOM_COMPRESSED : DRM_FORMAT_MOD_LINEAR;
-+   }
- #endif
-    return 0;
-PATCH_EOF
+    # Check if already applied
+    if grep -q "numInts >= 2" "$gralloc_file" && ! grep -q "gmsm" "$gralloc_file"; then
+        log_warn "Gralloc patch already applied"
+        return 0
+    fi
 
-    cd "$MESA_DIR"
-    patch -p1 --fuzz=3 --ignore-whitespace < "${WORKDIR}/gralloc.patch" 2>/dev/null || \
-        log_warn "Gralloc patch may have partially applied"
+    # Use Python for reliable context-independent patching
+    python3 - "$gralloc_file" << 'PYEOF'
+import sys, re
+
+filepath = sys.argv[1]
+with open(filepath, 'r') as f:
+    content = f.read()
+
+# Remove the gmsm check and keep only the ubwc bit check
+old_pattern = re.compile(
+    r'uint32_t gmsm.*?gmsm\).*?\{.*?bool ubwc = .*?0x08000000;.*?out->modifier.*?;.*?\}',
+    re.DOTALL
+)
+new_code = '''if (hnd->handle->numInts >= 2) {
+      bool ubwc = hnd->handle->data[hnd->handle->numFds + 1] & 0x08000000;
+      out->modifier = ubwc ? DRM_FORMAT_MOD_QCOM_COMPRESSED : DRM_FORMAT_MOD_LINEAR;
+   }'''
+
+if old_pattern.search(content):
+    new_content = old_pattern.sub(new_code, content)
+    with open(filepath, 'w') as f:
+        f.write(new_content)
+    print("[OK] Gralloc UBWC patch applied via Python")
+elif "numInts >= 2" in content and "gmsm" not in content:
+    print("[INFO] Gralloc patch already present")
+else:
+    # Fallback: direct sed-style replacement on the key line
+    new_content = re.sub(
+        r'if \(hnd->handle->numInts >= 2 && hnd->handle->data\[hnd->handle->numFds\] == gmsm\)',
+        'if (hnd->handle->numInts >= 2)',
+        content
+    )
+    new_content = re.sub(
+        r'\s*uint32_t gmsm = \(.*?\);\n', '\n', new_content
+    )
+    if new_content != content:
+        with open(filepath, 'w') as f:
+            f.write(new_content)
+        print("[OK] Gralloc UBWC patch applied via fallback sed")
+    else:
+        print("[WARN] Gralloc file structure changed — patch skipped")
+PYEOF
     log_success "Gralloc UBWC fix applied"
 }
 
@@ -837,8 +860,26 @@ configure_build() {
 
     local perf_args=""
     if [[ "$ENABLE_PERF" == "true" ]]; then
-        perf_args="-Dfreedreno-enable-perf=true -Dfreedreno-hw-level=latest"
-        log_info "Performance options enabled: $perf_args"
+        local valid_perf_args=()
+        # Check which perf options this Mesa version actually supports
+        for opt in "freedreno-enable-perf" "freedreno-hw-level"; do
+            if meson setup --help 2>/dev/null | grep -q "$opt" || \
+               grep -r "$opt" "${MESA_DIR}/meson_options.txt" "${MESA_DIR}/meson.build" \
+                   "${MESA_DIR}/src/freedreno/meson.build" 2>/dev/null | grep -q "$opt"; then
+                case "$opt" in
+                    "freedreno-enable-perf") valid_perf_args+=("-D${opt}=true") ;;
+                    "freedreno-hw-level")    valid_perf_args+=("-D${opt}=latest") ;;
+                esac
+            else
+                log_warn "Meson option '$opt' not supported in this Mesa version — skipping"
+            fi
+        done
+        if [[ ${#valid_perf_args[@]} -gt 0 ]]; then
+            perf_args="${valid_perf_args[*]}"
+            log_info "Performance options enabled: $perf_args"
+        else
+            log_warn "No valid performance options found for this Mesa version — building without perf flags"
+        fi
     fi
 
     local buildtype="$BUILD_TYPE"
@@ -924,7 +965,7 @@ package_driver() {
 {
     "schemaVersion": 1,
     "name": "Turnip ${TARGET_GPU} ${BUILD_VARIANT}",
-    "description": "TurnipDriver with extensions/spoofing for Winlator",
+    "description": "TurnipDriver with extensions/spoofing",
     "author": "Blue",
     "packageVersion": "1",
     "vendor": "Mesa",
