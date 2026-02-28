@@ -12,6 +12,7 @@ on:
           - staging_branch
           - main_branch
           - custom_tag
+          - latest_main
 
       staging_branch:
         type: choice
@@ -32,6 +33,8 @@ on:
         default: "release"
         options:
           - release
+          - debug
+          - debugoptimized
 
       build_variant:
         type: choice
@@ -39,6 +42,49 @@ on:
         default: "optimized"
         options:
           - optimized
+          - autotuner
+          - vanilla
+          - debug
+          - profile
+
+      target_gpu:
+        type: choice
+        description: "Target GPU generation"
+        default: "a7xx"
+        options:
+          - a6xx
+          - a7xx
+          - a8xx
+
+      enable_ext_spoof:
+        type: boolean
+        description: "Enable Vulkan extension spoofing (improves Winlator compatibility)"
+        default: true
+
+      enable_deck_emu:
+        type: boolean
+        description: "Enable deck_emu (Steam Deck identity)"
+        default: true
+
+      enable_timeline_hack:
+        type: boolean
+        description: "Enable timeline semaphore hack (improves DXVK performance)"
+        default: true
+
+      enable_ubwc_hack:
+        type: boolean
+        description: "Enable UBWC 5/6 blind enabling (may cause corruption, but improves performance)"
+        default: true
+
+      apply_patch_series:
+        type: boolean
+        description: "Apply full patch series from patches/series/ if present"
+        default: true
+
+      enable_perf:
+        type: boolean
+        description: "Enable performance options (freedreno-enable-perf)"
+        default: false
 
 permissions:
   contents: write
@@ -91,6 +137,13 @@ jobs:
           export BUILD_VARIANT="${{ inputs.build_variant || 'optimized' }}"
           export NDK_PATH="${{ github.workspace }}/android-ndk"
           export API_LEVEL="${{ env.API_LEVEL }}"
+          export TARGET_GPU="${{ inputs.target_gpu || 'a7xx' }}"
+          export ENABLE_EXT_SPOOF="${{ inputs.enable_ext_spoof || 'true' }}"
+          export ENABLE_DECK_EMU="${{ inputs.enable_deck_emu || 'true' }}"
+          export ENABLE_TIMELINE_HACK="${{ inputs.enable_timeline_hack || 'true' }}"
+          export ENABLE_UBWC_HACK="${{ inputs.enable_ubwc_hack || 'true' }}"
+          export APPLY_PATCH_SERIES="${{ inputs.apply_patch_series || 'true' }}"
+          export ENABLE_PERF="${{ inputs.enable_perf || 'false' }}"
 
           bash t-d.sh
 
@@ -111,7 +164,14 @@ jobs:
 #          tag_name: ${{ steps.build.outputs.filename }}
 #          name: "Turnip ${{ steps.build.outputs.version }} - ${{ inputs.build_variant || 'optimized' }}"
 #          body: |
-#            ## Turnip Vulkan Driver for Adreno 7xx
+#            ## Turnip Vulkan Driver for Adreno ${{ inputs.target_gpu || 'a7xx' }}
+#            - Built with: ${{ inputs.mesa_source }} / ${{ inputs.staging_branch || 'staging/26.0' }}
+#            - Ext spoof: ${{ inputs.enable_ext_spoof || 'true' }}
+#            - Deck emu: ${{ inputs.enable_deck_emu || 'true' }}
+#            - Timeline hack: ${{ inputs.enable_timeline_hack || 'true' }}
+#            - UBWC hack: ${{ inputs.enable_ubwc_hack || 'true' }}
+#            - Patch series: ${{ inputs.apply_patch_series || 'true' }}
+#            - Performance: ${{ inputs.enable_perf || 'false' }}
 #          files: build/*.zip
 #          draft: false
 #          prerelease: false
