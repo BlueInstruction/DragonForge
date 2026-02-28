@@ -1,5 +1,5 @@
-#!/bin/bash -e
-set -o pipefail
+#!/usr/bin/env bash
+set -euo pipefail
 
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -20,7 +20,7 @@ MESA_MIRROR="https://github.com/mesa3d/mesa.git"
 AUTOTUNER_REPO="https://gitlab.freedesktop.org/PixelyIon/mesa.git"
 VULKAN_HEADERS_REPO="https://github.com/KhronosGroup/Vulkan-Headers.git"
 
-# User configurable variables
+# ========== User configurable variables ==========
 MESA_SOURCE="${MESA_SOURCE:-main_branch}"          # latest_release, staging_branch, main_branch, custom_tag, latest_main
 STAGING_BRANCH="${STAGING_BRANCH:-staging/26.0}"
 CUSTOM_TAG="${CUSTOM_TAG:-}"
@@ -29,13 +29,19 @@ BUILD_VARIANT="${BUILD_VARIANT:-optimized}"        # optimized, autotuner, vanil
 NDK_PATH="${NDK_PATH:-/opt/android-ndk}"
 API_LEVEL="${API_LEVEL:-35}"
 TARGET_GPU="${TARGET_GPU:-a7xx}"                    # a6xx, a7xx, a8xx
-ENABLE_PERF="${ENABLE_PERF:-false}"                 # Enable performance options (e.g., freedreno-enable-perf)
-MESA_LOCAL_PATH="${MESA_LOCAL_PATH:-}"              # If set, use local Mesa source instead of cloning
+ENABLE_PERF="${ENABLE_PERF:-false}"                 # Enable performance options
+MESA_LOCAL_PATH="${MESA_LOCAL_PATH:-}"              # If set, use local Mesa source
+ENABLE_EXT_SPOOF="${ENABLE_EXT_SPOOF:-true}"        # Enable Vulkan extension spoofing (improves Winlator compatibility)
+ENABLE_DECK_EMU="${ENABLE_DECK_EMU:-true}"          # Enable deck_emu spoofing (Steam Deck identity)
+ENABLE_TIMELINE_HACK="${ENABLE_TIMELINE_HACK:-true}" # Enable timeline semaphore hack (improves DXVK performance)
+ENABLE_UBWC_HACK="${ENABLE_UBWC_HACK:-true}"        # Enable UBWC 5/6 blind enabling (may cause corruption, but improves performance)
+APPLY_PATCH_SERIES="${APPLY_PATCH_SERIES:-true}"    # Apply full patch series from patches/series/ if present
 
-# Extra compiler flags
+# Extra compiler flags – properly handled as list elements
 CFLAGS_EXTRA="${CFLAGS_EXTRA:--O3 -march=armv8.2-a+fp16+rcpc+dotprod}"
 CXXFLAGS_EXTRA="${CXXFLAGS_EXTRA:--O3 -march=armv8.2-a+fp16+rcpc+dotprod}"
 LDFLAGS_EXTRA="${LDFLAGS_EXTRA:--Wl,--gc-sections}"
+# =================================================
 
 check_deps() {
     local deps="git meson ninja patchelf zip ccache curl python3"
@@ -108,7 +114,6 @@ clone_mesa() {
     local target_ref=""
     local repo_url="$MESA_REPO"
 
-    # If local path is provided, use it instead of cloning
     if [[ -n "$MESA_LOCAL_PATH" && -d "$MESA_LOCAL_PATH" ]]; then
         log_info "Using local Mesa source at $MESA_LOCAL_PATH"
         cp -r "$MESA_LOCAL_PATH" "$MESA_DIR"
@@ -167,7 +172,6 @@ clone_mesa() {
     git config user.email "ci@turnip.builder"
     git config user.name "Turnip CI Builder"
 
-    # If latest_main, pull the latest updates
     if [[ "$MESA_SOURCE" == "latest_main" ]]; then
         git pull origin main
     fi
@@ -181,8 +185,32 @@ clone_mesa() {
 
 # ================== Patch functions ==================
 
+apply_patch_series() {
+    local series_dir="$1"
+    if [[ ! -d "$series_dir" ]]; then
+        log_warn "Patch series directory not found: $series_dir"
+        return 0
+    fi
+
+    cd "$MESA_DIR"
+    # Abort any previous am session
+    git am --abort &>/dev/null || true
+
+    # Apply all .patch files in sorted order
+    for patch in $(find "$series_dir" -maxdepth 1 -name '*.patch' | sort); do
+        local patch_name=$(basename "$patch")
+        log_info "Applying patch: $patch_name"
+        if ! git am --3way "$patch" 2>&1 | tee -a "${WORKDIR}/patch.log"; then
+            log_error "Failed to apply patch $patch_name"
+            git am --abort
+            exit 1
+        fi
+    done
+    log_success "All patches applied successfully"
+}
+
 apply_timeline_semaphore_fix() {
-    log_info "Applying timeline semaphore optimization"
+    log_info "Applying timeline semaphore optimization (hack)"
     local target_file="${MESA_DIR}/src/vulkan/runtime/vk_sync_timeline.c"
     [[ ! -f "$target_file" ]] && { log_warn "Timeline file not found"; return 0; }
 
@@ -284,7 +312,7 @@ PATCH_EOF
 }
 
 apply_ubwc_support() {
-    log_info "Applying UBWC 5/6 support"
+    log_info "Applying UBWC 5/6 support (hack)"
     local kgsl_file="${MESA_DIR}/src/freedreno/vulkan/tu_knl_kgsl.cc"
     [[ ! -f "$kgsl_file" ]] && { log_warn "KGSL file not found"; return 0; }
 
@@ -366,9 +394,12 @@ apply_deck_emu_support() {
     p->denormBehaviorIndependence =
 PATCH_EOF
         cd "$MESA_DIR"
-        patch -p1 --fuzz=3 --ignore-whitespace < "${WORKDIR}/deck_emu_device.patch" 2>/dev/null || \
-            log_warn "deck_emu device patch may have partially applied"
-        log_success "deck_emu device spoofing added"
+        if git apply --check "${WORKDIR}/deck_emu_device.patch" 2>/dev/null; then
+            git apply "${WORKDIR}/deck_emu_device.patch"
+            log_success "deck_emu device spoofing added"
+        else
+            log_warn "deck_emu device patch could not be applied"
+        fi
     fi
 }
 
@@ -386,7 +417,7 @@ apply_vulkan_extensions_support() {
 
     [[ ! -f "$tu_device" ]] && { log_warn "tu_device.cc not found"; return 0; }
 
-    # 1. Patch vk_extensions.py
+    # 1. Patch vk_extensions.py — add extensions to ALLOWED_ANDROID_VERSION
     if [[ -f "$vk_extensions_py" ]]; then
         cat > "${WORKDIR}/patch_vk_exts.py" << 'PYEOF'
 import sys, re
@@ -659,51 +690,55 @@ PYEOF
     log_success "Vulkan extensions support applied"
 }
 
-apply_a8xx_specific_patches() {
-    log_info "Applying A8xx specific patches (if any)"
-    local devices_py="${MESA_DIR}/src/freedreno/common/freedreno_devices.py"
-    if [[ -f "$devices_py" ]] && ! grep -q "a8xx_gen1" "$devices_py"; then
-        log_warn "A8xx device definitions not found in freedreno_devices.py; you may need to add them manually or pull latest main."
-    fi
-}
-
 apply_patches() {
     log_info "Applying patches for $TARGET_GPU"
     cd "$MESA_DIR"
 
     if [[ "$BUILD_VARIANT" == "vanilla" ]]; then
-        log_info "Vanilla build - skipping patches"
+        log_info "Vanilla build - skipping all patches"
         return 0
     fi
 
-    apply_timeline_semaphore_fix
-    apply_ubwc_support
-    apply_gralloc_ubwc_fix
-    apply_deck_emu_support
-    apply_vulkan_extensions_support
-
-    if [[ "$TARGET_GPU" == "a6xx" ]] && [[ "$BUILD_VARIANT" == "autotuner" ]]; then
-        apply_a6xx_query_fix
+    # Apply full patch series if enabled and present
+    if [[ "$APPLY_PATCH_SERIES" == "true" && -d "$PATCHES_DIR/series" ]]; then
+        apply_patch_series "$PATCHES_DIR/series"
+    else
+        log_info "Patch series not enabled or not found, applying individual patches based on flags"
+        # Individual patch functions (kept for backward compatibility)
+        if [[ "$ENABLE_TIMELINE_HACK" == "true" ]]; then
+            apply_timeline_semaphore_fix
+        fi
+        if [[ "$ENABLE_UBWC_HACK" == "true" ]]; then
+            apply_ubwc_support
+        fi
+        apply_gralloc_ubwc_fix
+        if [[ "$ENABLE_DECK_EMU" == "true" ]]; then
+            apply_deck_emu_support
+        fi
+        if [[ "$ENABLE_EXT_SPOOF" == "true" ]]; then
+            apply_vulkan_extensions_support
+        fi
+        if [[ "$BUILD_VARIANT" == "autotuner" ]]; then
+            apply_a6xx_query_fix
+        fi
     fi
 
-    if [[ "$TARGET_GPU" == "a8xx" ]]; then
-        apply_a8xx_specific_patches
-    fi
-
+    # Apply external patches from root patches directory (old method)
     if [[ -d "$PATCHES_DIR" ]]; then
         for patch in "$PATCHES_DIR"/*.patch; do
             [[ ! -f "$patch" ]] && continue
             local patch_name=$(basename "$patch")
-            
-            if [[ "$TARGET_GPU" != "a8xx" ]] && [[ "$patch_name" == *"a8xx"* ]]; then
-                log_info "Skipping A8xx patch (target is $TARGET_GPU): $patch_name"
-                continue
+            # Skip if it's in series subdir (already applied)
+            [[ "$patch_name" == *"/series/"* ]] && continue
+            if [[ "$patch_name" == *"a8xx"* ]] || [[ "$patch_name" == *"A8xx"* ]] || \
+               [[ "$patch_name" == *"810"*  ]] || [[ "$patch_name" == *"825"*  ]] || \
+               [[ "$patch_name" == *"829"*  ]] || [[ "$patch_name" == *"830"*  ]] || \
+               [[ "$patch_name" == *"840"*  ]] || [[ "$patch_name" == *"gen8"* ]]; then
+                if [[ "$TARGET_GPU" != "a8xx" ]]; then
+                    log_info "Skipping A8xx patch (target is $TARGET_GPU): $patch_name"
+                    continue
+                fi
             fi
-            if [[ "$TARGET_GPU" != "a6xx" ]] && [[ "$patch_name" == *"a6xx"* ]]; then
-                log_info "Skipping A6xx patch (target is $TARGET_GPU): $patch_name"
-                continue
-            fi
-
             log_info "Applying: $patch_name"
             if git apply --check "$patch" 2>/dev/null; then
                 git apply "$patch"
@@ -750,6 +785,28 @@ create_cross_file() {
     [[ ! -f "${ndk_bin}/aarch64-linux-android${cver}-clang" ]] && cver="35"
     [[ ! -f "${ndk_bin}/aarch64-linux-android${cver}-clang" ]] && cver="34"
 
+    # Build c_args list properly
+    local c_args_list="'-D__ANDROID__', '-Wno-error', '-Wno-deprecated-declarations'"
+    if [ -n "$CFLAGS_EXTRA" ]; then
+        for flag in $CFLAGS_EXTRA; do
+            c_args_list="$c_args_list, '$flag'"
+        done
+    fi
+
+    local cpp_args_list="'-D__ANDROID__', '-Wno-error', '-Wno-deprecated-declarations'"
+    if [ -n "$CXXFLAGS_EXTRA" ]; then
+        for flag in $CXXFLAGS_EXTRA; do
+            cpp_args_list="$cpp_args_list, '$flag'"
+        done
+    fi
+
+    local link_args_list="'-static-libstdc++'"
+    if [ -n "$LDFLAGS_EXTRA" ]; then
+        for flag in $LDFLAGS_EXTRA; do
+            link_args_list="$link_args_list, '$flag'"
+        done
+    fi
+
     cat > "${WORKDIR}/cross-aarch64.txt" << EOF
 [binaries]
 ar     = '${ndk_bin}/llvm-ar'
@@ -766,10 +823,10 @@ cpu        = 'armv8'
 endian     = 'little'
 
 [built-in options]
-c_args        = ['-D__ANDROID__', '-Wno-error', '-Wno-deprecated-declarations' ${CFLAGS_EXTRA:+ , ${CFLAGS_EXTRA}}]
-cpp_args      = ['-D__ANDROID__', '-Wno-error', '-Wno-deprecated-declarations' ${CXXFLAGS_EXTRA:+ , ${CXXFLAGS_EXTRA}}]
-c_link_args   = ['-static-libstdc++' ${LDFLAGS_EXTRA:+ , ${LDFLAGS_EXTRA}}]
-cpp_link_args = ['-static-libstdc++' ${LDFLAGS_EXTRA:+ , ${LDFLAGS_EXTRA}}]
+c_args        = [$c_args_list]
+cpp_args      = [$cpp_args_list]
+c_link_args   = [$link_args_list]
+cpp_link_args = [$link_args_list]
 EOF
     log_success "Cross-compilation file created"
 }
@@ -818,6 +875,11 @@ configure_build() {
         $perf_args                                       \
         --force-fallback-for=spirv-tools,spirv-headers  \
         2>&1 | tee "${WORKDIR}/meson.log"
+
+    if [ ${PIPESTATUS[0]} -ne 0 ]; then
+        log_error "Meson configuration failed"
+        exit 1
+    fi
     log_success "Build configured"
 }
 
@@ -862,7 +924,7 @@ package_driver() {
 {
     "schemaVersion": 1,
     "name": "Turnip ${TARGET_GPU} ${BUILD_VARIANT}",
-    "description": "Built from Mesa source",
+    "description": "TurnipDriver with extensions/spoofing for Winlator",
     "author": "Blue",
     "packageVersion": "1",
     "vendor": "Mesa",
@@ -896,14 +958,19 @@ print_summary() {
     echo "  Build Variant  : $BUILD_VARIANT"
     echo "  Source         : $MESA_SOURCE"
     echo "  Performance    : $ENABLE_PERF"
+    echo "  Ext Spoof      : $ENABLE_EXT_SPOOF"
+    echo "  Deck Emu       : $ENABLE_DECK_EMU"
+    echo "  Timeline Hack  : $ENABLE_TIMELINE_HACK"
+    echo "  UBWC Hack      : $ENABLE_UBWC_HACK"
+    echo "  Patch Series   : $APPLY_PATCH_SERIES"
     echo "  Output         :"
     ls -lh "${WORKDIR}"/*.zip 2>/dev/null | awk '{print "    " $9 " (" $5 ")"}'
     echo ""
 }
 
 main() {
-    log_info "Turnip Driver Builder"
-    log_info "Configuration: target=$TARGET_GPU, variant=$BUILD_VARIANT, source=$MESA_SOURCE, perf=$ENABLE_PERF"
+    log_info "Turnip Driver Builder (Winlator Optimized)"
+    log_info "Configuration: target=$TARGET_GPU, variant=$BUILD_VARIANT, source=$MESA_SOURCE"
 
     check_deps
     prepare_workdir
